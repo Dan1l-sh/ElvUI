@@ -2,4 +2,5 @@
 	<Script file="Skins.lua"/>
 	<Include file="Addons\Load_Addons.xml"/>
 	<Include file="Blizzard\Load_Blizzard.xml"/>
+	<Include file="Nozdor\Load_Nozdor.xml"/>
 </Ui>

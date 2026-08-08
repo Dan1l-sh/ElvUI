@@ -11,7 +11,6 @@
 	<Script file="Binding.lua"/>
 	<Script file="BlizzardOptions.lua"/>
 	<Script file="Calendar.lua"/>
-	<Script file="Character.lua"/>
 	<Script file="Debug.lua"/>
 	<Script file="DressingRoom.lua"/>
 	<Script file="Friends.lua"/>

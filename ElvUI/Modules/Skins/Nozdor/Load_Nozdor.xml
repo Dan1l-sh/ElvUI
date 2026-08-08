@@ -1,0 +1,5 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/">
+	<!-- Скины retail-подобных окон NOZDOR (ГИБРИД: авто-хром + контент пер-оконно) -->
+	<Script file="NozdorChrome.lua"/>
+	<Script file="NozdorCharacter.lua"/>
+</Ui>
