@@ -127,6 +127,7 @@ S:AddCallback("Skin_BlizzardOptions", function()
 		"InterfaceOptionsControlsPanelBlockTrades",
 		"InterfaceOptionsControlsPanelLootAtMouse",
 		"InterfaceOptionsControlsPanelAutoLootCorpse",
+		"InterfaceOptionsControlsPanelKeyPressCastOnDown",
 		"InterfaceOptionsCombatPanelAttackOnAssist",
 		"InterfaceOptionsCombatPanelAutoRange",
 		"InterfaceOptionsCombatPanelStopAutoAttack",
@@ -227,11 +228,13 @@ S:AddCallback("Skin_BlizzardOptions", function()
 		"InterfaceOptionsHelpPanelEnhancedTooltips",
 		"InterfaceOptionsHelpPanelBeginnerTooltips",
 		"InterfaceOptionsHelpPanelShowLuaErrors",
+		"InterfaceOptionsLanguagesPanelUseEnglishAudio",
 		"InterfaceOptionsStatusTextPanelPlayer",
 		"InterfaceOptionsStatusTextPanelPet",
 		"InterfaceOptionsStatusTextPanelParty",
 		"InterfaceOptionsStatusTextPanelTarget",
 		"InterfaceOptionsStatusTextPanelPercentages",
+		"InterfaceOptionsStatusTextPanelBoth",
 		"InterfaceOptionsStatusTextPanelXP",
 		"InterfaceOptionsUnitFramePanelPartyBackground",
 		"InterfaceOptionsUnitFramePanelPartyPets",
@@ -369,6 +372,20 @@ S:AddCallback("Skin_BlizzardOptions", function()
 	InterfaceOptionsFrameAddOnsListScrollBar:Point("BOTTOMLEFT", 7, 19)
 
 	S:HandleDropDownBox(VideoOptionsResolutionPanelMultiSampleDropDown, 195)
+
+	-- Сетка «Эффекты заклинаний» строится в FrameXML только при Extension.dll.
+	if SPELL_FX_GRID then
+		for _, box in ipairs(SPELL_FX_GRID.boxes) do
+			S:HandleCheckBox(box)
+		end
+		for i = 1, #SPELL_FX_PRESETS do
+			local preset = _G["InterfaceOptionsBuffsPanelFxPreset"..i]
+			if preset then S:HandleButton(preset) end
+		end
+		if InterfaceOptionsBuffsPanelFxZonesDropDown then
+			S:HandleDropDownBox(InterfaceOptionsBuffsPanelFxZonesDropDown)
+		end
+	end
 
 	VideoOptionsFrameDefaults:Point("BOTTOMLEFT", 21, 16)
 	VideoOptionsFrameApply:Point("BOTTOMRIGHT", -22, 16)
