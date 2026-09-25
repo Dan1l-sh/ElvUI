@@ -4,91 +4,275 @@ local S = E:GetModule("Skins")
 --Lua functions
 local _G = _G
 local unpack = unpack
+local ipairs = ipairs
+local type = type
+local hooksecurefunc = hooksecurefunc
 --WoW API / Variables
 local GetInventoryItemID = GetInventoryItemID
 local GetItemInfo = GetItemInfo
 local GetItemQualityColor = GetItemQualityColor
-local GetInventoryItemLink = GetInventoryItemLink
-local CreateFrame = CreateFrame
-local floor = math.floor
-local min, max = math.min, math.max
+
+-- base helpers: remove insets + backgrounds, as the player windows do.
+
+-- InsetFrameTemplate marble border pieces (parentKeys).
+local INSET_BORDER = {
+	"InsetBorderTopLeft", "InsetBorderTopRight",
+	"InsetBorderBottomLeft", "InsetBorderBottomRight",
+	"InsetBorderTop", "InsetBorderBottom", "InsetBorderLeft", "InsetBorderRight",
+}
+local GRID_BG_SUFFIX = {
+	"Background", "BackgroundTopLeft", "BackgroundTopRight",
+	"BackgroundBottomLeft", "BackgroundBottomRight",
+}
+
+local function hide(obj)
+	if obj and obj.SetAlpha then obj:SetAlpha(0) end
+end
+
+-- Turn a texture region into a flat dark fill (reuse an existing bg texture).
+local function darkenTex(tex, alpha)
+	if not tex then return end
+	tex:Show()
+	if tex.SetHorizTile then tex:SetHorizTile(false) end
+	if tex.SetVertTile then tex:SetVertTile(false) end
+	tex:SetTexture("Interface\\Buttons\\WHITE8X8")
+	tex:SetVertexColor(0, 0, 0, alpha or 0.6)
+end
+
+-- Flatten an InsetFrameTemplate: hide its marble Bgs + the 8 border pieces.
+local function flattenInset(inset)
+	if not inset then return end
+	for _, key in ipairs(INSET_BORDER) do
+		local r = inset[key]
+		if r then r:SetAlpha(0); if r.Hide then r:Hide() end end
+	end
+	if inset.Bgs then inset.Bgs:SetAlpha(0) end
+end
+
+-- Reuse an inset's own (marble) Bgs region as a flat dark fill. Only safe when the
+-- inset sits BELOW the content (as the talent content inset does under the grid).
+local function darkenInset(inset)
+	if not inset then return end
+	for _, key in ipairs(INSET_BORDER) do
+		local r = inset[key]
+		if r then r:SetAlpha(0); if r.Hide then r:Hide() end end
+	end
+	if inset.Bgs then
+		inset.Bgs:Show()
+		inset.Bgs:SetHorizTile(false)
+		inset.Bgs:SetVertTile(false)
+		inset.Bgs:SetTexture("Interface\\Buttons\\WHITE8X8")
+		inset.Bgs:SetVertexColor(0, 0, 0, 0.6)
+	end
+end
+
+-- Blank every Texture region a frame owns (leaves child frames / fontstrings alone).
+local function blankTextureRegions(frame)
+	if not frame or not frame.GetRegions then return end
+	for _, r in ipairs({ frame:GetRegions() }) do
+		if r.GetObjectType and r:GetObjectType() == "Texture" then r:SetAlpha(0) end
+	end
+end
+
+-- Hide rock/marble bg textures by texture path (keeps the rest, e.g. the parchment) —
+-- for frames whose bg is an unnamed runtime texture.
+local function hideRockRegions(frame)
+	if not frame or not frame.GetRegions then return end
+	for _, r in ipairs({ frame:GetRegions() }) do
+		if r.GetObjectType and r:GetObjectType() == "Texture" and r.GetTexture then
+			local t = r:GetTexture()
+			if type(t) == "string" then
+				local lt = t:lower()
+				if lt:find("ui%-background%-rock") or lt:find("_ui%-frame") then
+					r:SetAlpha(0)
+				end
+			end
+		end
+	end
+end
 
 S:AddCallbackForAddon("Blizzard_InspectUI", "Skin_Blizzard_InspectUI", function()
 	if not E.private.skins.blizzard.enable or not E.private.skins.blizzard.inspect then return end
 
+	-- main window frame (once)
 	InspectFrame:StripTextures(true)
 	InspectFrame:CreateBackdrop("Transparent")
-	InspectFrame.backdrop:Point("TOPLEFT", 11, -12)
-	InspectFrame.backdrop:Point("BOTTOMRIGHT", -32, 76)
+	InspectFrame.backdrop:Point("TOPLEFT", 2, -2)
+	InspectFrame.backdrop:Point("BOTTOMRIGHT", -2, 2)
 
 	S:SetUIPanelWindowInfo(InspectFrame, "width")
-
 	S:SetBackdropHitRect(InspectFrame)
-	S:SetBackdropHitRect(InspectPVPFrame, InspectFrame.backdrop)
-	S:SetBackdropHitRect(InspectTalentFrame, InspectFrame.backdrop)
 
-	InspectPVPFrameHonor:SetHitRectInsets(0, 120, 0, 0)
-	InspectPVPFrameArena:SetHitRectInsets(0, 120, 0, 0)
+	-- The server re-textures the ring on show/unit-change, so re-flatten on that.
+	local function FlattenChrome()
+		if S.HandleMetalFrame then S:HandleMetalFrame(InspectFrame, InspectFrame.backdrop) end
+		-- HandleMetalFrame hides ringPortrait/specRingIcon, but the stock portrait texture
+		-- and the 3D portrait model still show — hide them too.
+		hide(_G.InspectFramePortrait)
+		if _G.InspectFramePortraitModel then _G.InspectFramePortraitModel:Hide() end
+		if _G.InspectFramePortraitModelModel then _G.InspectFramePortraitModelModel:Hide() end
+		if InspectFrame.portrait then hide(InspectFrame.portrait) end
+		if InspectFrame.ringPortrait then InspectFrame.ringPortrait:Hide() end
+	end
+	FlattenChrome()
+	if _G.InspectFrame_UpdateRingPortrait then
+		hooksecurefunc("InspectFrame_UpdateRingPortrait", FlattenChrome)
+	end
 
-	S:HandleCloseButton(InspectFrameCloseButton, InspectFrame.backdrop)
+	-- 5 NozdorFinder tabs.
+	for i = 1, 5 do
+		local tab = _G["InspectFrameTab"..i]
+		if tab then
+			S:HandleTab(tab)
+			if tab.backdrop then
+				-- Pull the backdrop 1px down out of the window (tabs overlapped it).
+				tab.backdrop:Point("TOPLEFT", tab, "TOPLEFT", 2, -1)
+				tab.backdrop:Point("BOTTOMRIGHT", tab, "BOTTOMRIGHT", -2, 2)
+				tab:SetHitRectInsets(0, 0, 0, 0)
+			end
+		end
+	end
 
-	S:HandleTab(InspectFrameTab1)
-	S:HandleTab(InspectFrameTab2)
-	S:HandleTab(InspectFrameTab3)
+	-- per-tab background/inset removal. IMPORTANT: set up BEFORE the one-time
+	-- paperdoll/rotate/PVP styling, since that styling can throw on the server's
+	-- redesigned widgets and a throw would abort the whole callback (why the inspect
+	-- window previously "never changed"). Applied on every tab switch/show.
+	local function SkinPaperDoll()
+		hide(_G.InspectPaperDollRockBg)
+		hide(_G.InspectPaperDollHeaderRock)
+		hide(_G.InspectPaperDollTopTileStreaks)
+		hide(_G.InspectBottomDivider)
+		flattenInset(_G.InspectPaperDollInset)
+		-- Model scene quadrants + overlay — hide so the model sits on the flat backdrop.
+		hide(_G.InspectModelFrameBgTopLeft)
+		hide(_G.InspectModelFrameBgTopRight)
+		hide(_G.InspectModelFrameBgBotLeft)
+		hide(_G.InspectModelFrameBgBotRight)
+		hide(_G.InspectModelFrameBgOverlay)
+		-- Model frame border (Char-Paperdoll-Horizontal/Vertical edges).
+		for _, sfx in ipairs({ "Top", "Bottom", "Left", "Right", "TopLeft", "TopRight", "BottomLeft", "BottomRight" }) do
+			hide(_G["InspectModelBorder"..sfx])
+		end
+	end
 
+	local function SkinPVP()
+		if _G.InspectPVPFrame then
+			hide(InspectPVPFrame.RockBg)
+			hide(InspectPVPFrame.TopTileStreaks)
+		end
+		local inset = _G.InspectPVPInset
+		if inset then
+			for _, key in ipairs(INSET_BORDER) do
+				local r = inset[key]
+				if r then r:SetAlpha(0); if r.Hide then r:Hide() end end
+			end
+			-- This inset's fill is pvp-conquest art on parentKey .Bg (not .Bgs); hide the
+			-- marble Bgs behind it, then reuse .Bg as a strong dark fill.
+			hide(inset.Bgs)
+			darkenTex(inset.Bg or inset.Bgs, 0.75)
+		end
+	end
+
+	-- Talents: dark panel per column (reuse each column inset's Bgs as the dark fill).
+	-- Grid buttons draw above the inset, so this doesn't cover the icons.
+	local function SkinTalentGrid()
+		for c = 1, 3 do
+			local col = _G["InspectTalentFrameGridColumn"..c]
+			local inset = _G["InspectTalentFrameGridColumn"..c.."Inset"]
+			if inset then
+				darkenInset(inset)
+				-- Inset is created after the talent buttons, so its dark fill draws over
+				-- them; push it below the column content so the icons sit above.
+				if col then
+					inset:SetFrameLevel(math.max((col:GetFrameLevel() or 1) - 1, 0))
+				end
+			end
+			for _, sfx in ipairs(GRID_BG_SUFFIX) do
+				hide(_G["InspectTalentFrameGridColumn"..c..sfx])
+			end
+		end
+	end
+	local function SkinTalents()
+		local frame = _G.InspectTalentFrame
+		if not frame then return end
+		hideRockRegions(frame)
+		-- Content inset sits under the whole grid — just flatten it (columns provide the dark).
+		flattenInset(frame.contentInset or _G.InspectTalentFrameContentInset)
+		SkinTalentGrid()
+	end
+
+	local function SkinGlyphs()
+		local frame = _G.InspectGlyphFrame
+		if not frame then return end
+		hideRockRegions(frame)
+		flattenInset(frame.contentInset or _G.InspectGlyphFrameContentInset)
+		if _G.InspectGlyphFrameBackground then _G.InspectGlyphFrameBackground:SetAlpha(0.6) end
+	end
+
+	local function SkinRunes()
+		local host = _G.InspectRuneFrameHost
+		if not host then return end
+		blankTextureRegions(host)
+		if host.CloseButton then host.CloseButton:Hide() end
+	end
+
+	local function SkinCurrentTab()
+		SkinPaperDoll()
+		SkinPVP()
+		SkinTalents()
+		SkinGlyphs()
+		SkinRunes()
+		FlattenChrome()
+	end
+	SkinCurrentTab()
+
+	if _G.TalentFrame_ApplyColumnInsets then
+		hooksecurefunc("TalentFrame_ApplyColumnInsets", function(tf)
+			if tf == _G.InspectTalentFrame then SkinTalentGrid() end
+		end)
+	end
+	if _G.InspectSwitchTabs then
+		hooksecurefunc("InspectSwitchTabs", SkinCurrentTab)
+	end
+	if _G.InspectFrame_OnShow then
+		hooksecurefunc("InspectFrame_OnShow", SkinCurrentTab)
+	end
+
+	-- paperdoll gear (once)
 	InspectPaperDollFrame:StripTextures()
 
 	local slots = {
-		"HeadSlot",
-		"NeckSlot",
-		"ShoulderSlot",
-		"BackSlot",
-		"ChestSlot",
-		"ShirtSlot",
-		"TabardSlot",
-		"WristSlot",
-		"HandsSlot",
-		"WaistSlot",
-		"LegsSlot",
-		"FeetSlot",
-		"Finger0Slot",
-		"Finger1Slot",
-		"Trinket0Slot",
-		"Trinket1Slot",
-		"MainHandSlot",
-		"SecondaryHandSlot",
-		"RangedSlot"
+		"HeadSlot", "NeckSlot", "ShoulderSlot", "BackSlot", "ChestSlot",
+		"ShirtSlot", "TabardSlot", "WristSlot", "HandsSlot", "WaistSlot",
+		"LegsSlot", "FeetSlot", "Finger0Slot", "Finger1Slot", "Trinket0Slot",
+		"Trinket1Slot", "MainHandSlot", "SecondaryHandSlot", "RangedSlot",
 	}
-
 	for _, slot in ipairs(slots) do
 		local icon = _G["Inspect"..slot.."IconTexture"]
 		local frame = _G["Inspect"..slot]
-
-		frame:StripTextures()
-		frame:SetFrameLevel(frame:GetFrameLevel() + 2)
-		frame:CreateBackdrop("Default")
-		frame.backdrop:SetAllPoints()
-
-		frame:StyleButton()
-
-		icon:SetTexCoord(unpack(E.TexCoords))
-		icon:SetInside()
+		if frame then
+			frame:StripTextures()
+			frame:SetFrameLevel(frame:GetFrameLevel() + 2)
+			frame:CreateBackdrop("Default")
+			frame.backdrop:SetAllPoints()
+			frame:StyleButton()
+			if icon then
+				icon:SetTexCoord(unpack(E.TexCoords))
+				icon:SetInside()
+			end
+		end
 	end
 
 	local styleButton
 	do
 		local function awaitCache(button)
-			if InspectFrame.unit then
-				styleButton(button)
-			end
+			if InspectFrame.unit then styleButton(button) end
 		end
-
 		styleButton = function(button)
 			if button.hasItem then
 				local itemID = GetInventoryItemID(InspectFrame.unit, button:GetID())
 				if itemID then
 					local _, _, quality = GetItemInfo(itemID)
-
 					if not quality then
 						E:Delay(0.1, awaitCache, button)
 						return
@@ -98,180 +282,29 @@ S:AddCallbackForAddon("Blizzard_InspectUI", "Skin_Blizzard_InspectUI", function(
 					end
 				end
 			end
-
 			button.backdrop:SetBackdropBorderColor(unpack(E.media.bordercolor))
 		end
 	end
-
 	hooksecurefunc("InspectPaperDollItemSlotButton_Update", styleButton)
 
-	S:HandleRotateButton(InspectModelRotateLeftButton)
-	S:HandleRotateButton(InspectModelRotateRightButton)
+	-- Rotate arrows: the server's custom arrows have no NormalTexture, so HandleRotateButton
+	-- throws; use HandleButton instead (same fix as the character pet-model arrows).
+	if _G.InspectModelRotateLeftButton then S:HandleButton(InspectModelRotateLeftButton) end
+	if _G.InspectModelRotateRightButton then S:HandleButton(InspectModelRotateRightButton) end
 
-	InspectPVPFrame:StripTextures()
-
-	for i = 1, MAX_ARENA_TEAMS do
+	-- PVP (once)
+	if _G.InspectPVPFrame then InspectPVPFrame:StripTextures() end
+	for i = 1, (MAX_ARENA_TEAMS or 0) do
 		local frame = _G["InspectPVPTeam"..i]
-		frame:StripTextures()
-		frame:CreateBackdrop("Transparent")
-		frame.backdrop:Point("TOPLEFT", 9, -6)
-		frame.backdrop:Point("BOTTOMRIGHT", -24, -5)
-	--	_G["InspectPVPTeam"..i.."StandardBar"]:Kill()
-		S:SetBackdropHitRect(frame)
-	end
-
-	InspectTalentFrame:StripTextures()
-
-	S:HandleCloseButton(InspectTalentFrameCloseButton, InspectFrame.backdrop)
-
-	for i = 1, MAX_TALENT_TABS do
-		local headerTab = _G["InspectTalentFrameTab"..i]
-
-		headerTab:StripTextures()
-		headerTab:CreateBackdrop("Default", true)
-		headerTab.backdrop:Point("TOPLEFT", 2, -7)
-		headerTab.backdrop:Point("BOTTOMRIGHT", 1, -1)
-		S:SetBackdropHitRect(headerTab)
-
-		headerTab:Width(i == 2 and 101 or 102)
-		headerTab.SetWidth = E.noop
-
-		headerTab:HookScript("OnEnter", S.SetModifiedBackdrop)
-		headerTab:HookScript("OnLeave", S.SetOriginalBackdrop)
-	end
-
-	for i = 1, MAX_NUM_TALENTS do
-		local talent = _G["InspectTalentFrameTalent"..i]
-
-		if talent then
-			local icon = _G["InspectTalentFrameTalent"..i.."IconTexture"]
-			local rank = _G["InspectTalentFrameTalent"..i.."Rank"]
-
-			talent:StripTextures()
-			talent:SetTemplate("Default")
-			talent:StyleButton()
-
-			icon:SetInside()
-			icon:SetTexCoord(unpack(E.TexCoords))
-			icon:SetDrawLayer("ARTWORK")
-
-			rank:SetFont(E.LSM:Fetch("font", E.db.general.font), 12, "OUTLINE")
+		if frame then
+			frame:StripTextures()
+			frame:CreateBackdrop("Transparent")
+			frame.backdrop:Point("TOPLEFT", 9, -6)
+			frame.backdrop:Point("BOTTOMRIGHT", -24, -5)
+			S:SetBackdropHitRect(frame)
 		end
 	end
 
-	InspectHeadSlot:Point("TOPLEFT", 19, -76)
-	InspectHandsSlot:Point("TOPLEFT", 307, -76)
-	InspectMainHandSlot:Point("TOPLEFT", InspectPaperDollFrame, "BOTTOMLEFT", 121, 131)
-
-	InspectModelFrame:Size(237, 324)
-	InspectModelFrame:Point("TOPLEFT", 63, -76)
-
-	InspectModelRotateLeftButton:Point("TOPLEFT", 4, -4)
-
-	InspectTalentFrameScrollFrame:StripTextures()
-	InspectTalentFrameScrollFrame:CreateBackdrop("Transparent")
-	InspectTalentFrameScrollFrame.backdrop:Point("TOPLEFT", -1, 1)
-	InspectTalentFrameScrollFrame.backdrop:Point("BOTTOMRIGHT", 5, -4)
-
-	InspectTalentFramePointsBar:StripTextures()
-
-	InspectModelRotateRightButton:Point("TOPLEFT", InspectModelRotateLeftButton, "TOPRIGHT", 3, 0)
-
-	InspectFrameTab1:Point("CENTER", InspectFrame, "BOTTOMLEFT", 54, 62)
-	InspectFrameTab2:Point("LEFT", InspectFrameTab1, "RIGHT", -15, 0)
-	InspectFrameTab3:Point("LEFT", InspectFrameTab2, "RIGHT", -15, 0)
-
-	InspectTalentFrameBackgroundTopLeft:Point("TOPLEFT", 21, -77)
-
-	InspectTalentFrameTab1:Point("TOPLEFT", 17, -40)
-
-	InspectTalentFrameScrollFrame:Width(298)
-	InspectTalentFrameScrollFrame:Point("TOPRIGHT", -66, -77)
-
-	S:HandleScrollBar(InspectTalentFrameScrollFrameScrollBar)
-	InspectTalentFrameScrollFrameScrollBar:Point("TOPLEFT", InspectTalentFrameScrollFrame, "TOPRIGHT", 8, -18)
-	InspectTalentFrameScrollFrameScrollBar:Point("BOTTOMLEFT", InspectTalentFrameScrollFrame, "BOTTOMRIGHT", 8, 15)
-
-	local InspectILvl = InspectPaperDollFrame:CreateFontString(nil, "OVERLAY")
-	InspectILvl:FontTemplate(E.LSM:Fetch("font", E.db.general.font), 21, "OUTLINE")
-
-	InspectILvl:Point("TOPLEFT", InspectModelFrame, "BOTTOMLEFT", 100, 50)
-	InspectILvl:SetText("—")
-
-		local INSPECT_SLOT_IDS = {
-		1,  -- Head
-		2,  -- Neck
-		3,  -- Shoulder
-		15, -- Back
-		5,  -- Chest
-		9,  -- Wrist
-		10, -- Hands
-		6,  -- Waist
-		7,  -- Legs
-		8,  -- Feet
-		11, -- Finger 1
-		12, -- Finger 2
-		13, -- Trinket 1
-		14, -- Trinket 2
-		16, -- Main Hand
-		17, -- Off Hand
-		18, -- Ranged (WotLK)
-	}
-
-	local function ColorByILvl(ilvl)
-		if ilvl <= 190 then
-			return GetItemQualityColor(2)
-		elseif ilvl <= 200 then
-			return GetItemQualityColor(3)
-		else
-			return GetItemQualityColor(4)
-		end
-	end
-
-	local function UpdateInspectAverage()
-		if not InspectFrame or not InspectFrame.unit or not InspectFrame:IsShown() then return end
-		local unit = InspectFrame.unit
-
-		local total, count, needsRetry = 0, 0, false
-
-		for _, slotID in ipairs(INSPECT_SLOT_IDS) do
-			local link = GetInventoryItemLink(unit, slotID)
-			if link then
-				local _, _, _, ilvl = GetItemInfo(link)
-				if not ilvl then
-					needsRetry = true
-				elseif ilvl > 0 then
-					total = total + ilvl
-					count = count + 1
-				end
-			end
-		end
-
-		if needsRetry then
-			E:Delay(0.1, UpdateInspectAverage)
-			return
-		end
-
-		if count > 0 then
-			local avg = total / count
-			local rounded = floor(avg + 0.5)
-			local r, g, b = ColorByILvl(rounded)
-			InspectILvl:SetFormattedText("%d", rounded)
-			InspectILvl:SetTextColor(r, g, b)
-		else
-			InspectILvl:SetText("—")
-			InspectILvl:SetTextColor(1, 1, 1)
-		end
-	end
-
-	InspectFrame:HookScript("OnShow", UpdateInspectAverage)
-	hooksecurefunc("InspectPaperDollItemSlotButton_Update", function()
-		if InspectFrame:IsShown() then UpdateInspectAverage() end
-	end)
-
-	local InspectILvlEvent = CreateFrame("Frame")
-	InspectILvlEvent:RegisterEvent("INSPECT_READY")
-	InspectILvlEvent:SetScript("OnEvent", function(_, event, guid)
-		if InspectFrame:IsShown() then UpdateInspectAverage() end
-	end)
+	-- Average item level is drawn by the server's own redesigned inspect window
+	-- (ItemLevelMixIn); an ElvUI copy here duplicated the number, so it's not added.
 end)

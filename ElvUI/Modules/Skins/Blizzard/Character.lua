@@ -7,6 +7,26 @@ local unpack = unpack
 local math_max = math.max
 local floor = math.floor
 
+-- Mass close-button replacement: the server's CloseButton2X_Apply runs after our
+-- per-window skinning and overrode the ElvUI "X". Hook it once so every button it
+-- styles is re-skinned automatically, no per-button handling.
+if _G.CloseButton2X_Apply and not _G.__ElvUI_CloseButton2XHooked then
+	_G.__ElvUI_CloseButton2XHooked = true
+	hooksecurefunc("CloseButton2X_Apply", function(btn)
+		if btn and S.HandleCloseButton then S:HandleCloseButton(btn) end
+	end)
+end
+-- The other half: MetalFrame2X_Decorate creates its own CloseButton (not via
+-- CloseButton2X_Apply), so hook that too.
+if _G.MetalFrame2X_Decorate and not _G.__ElvUI_MetalDecorateHooked then
+	_G.__ElvUI_MetalDecorateHooked = true
+	hooksecurefunc("MetalFrame2X_Decorate", function(frame)
+		if frame and frame.CloseButton and S.HandleCloseButton then
+			S:HandleCloseButton(frame.CloseButton)
+		end
+	end)
+end
+
 local function SafeHandleTab(tab)
 	if not tab then return end
 	if tab.HighlightLeft and tab.HighlightLeft.StripTextures then tab.HighlightLeft:StripTextures() end
@@ -36,6 +56,180 @@ local function MakeBD(parent, w, h)
     return f
 end
 
+-- Zebra striping for list rows: a faint WHITE8X8 fill on every other row, keyed by the
+-- row's fixed slot index (rows are recycled on scroll). Header rows are excluded (pass
+-- isHeader) so they keep the server's category plate. Toggled each call so a recycled
+-- slot that becomes a header can turn its stripe off.
+local function AddRowStripe(row, i, rightPad, isHeader, leftPad)
+	if not row or not row.CreateTexture then return end
+	if (i % 2) == 0 and not row.__euiStripe then
+		-- On a child frame so the row skinners' StripTextures can't wipe it (never recurses).
+		local holder = CreateFrame("Frame", nil, row)
+		holder:SetAllPoints(row)
+		if holder.SetFrameLevel and row.GetFrameLevel then
+			holder:SetFrameLevel(math_max((row:GetFrameLevel() or 1) - 1, 0))
+		end
+		local stripe = holder:CreateTexture(nil, "BACKGROUND")
+		stripe:SetPoint("TOPLEFT", row, "TOPLEFT", leftPad or 0, 0)
+		stripe:SetPoint("BOTTOMRIGHT", row, "BOTTOMRIGHT", rightPad or 0, 0)
+		stripe:SetTexture("Interface\\Buttons\\WHITE8X8")
+		stripe:SetVertexColor(1, 1, 1)
+		stripe:SetAlpha(0.05)
+		row.__euiStripe = stripe
+	end
+	if row.__euiStripe then
+		row.__euiStripe:SetShown((i % 2) == 0 and not isHeader)
+	end
+end
+
+-- The title plate the server draws on skill headers (left cap + stretched middle +
+-- mirrored right cap from commonbuttons), copied so rep/currency headers match.
+local PLATE_TEX   = "Interface\\Buttons\\commonbuttons"
+local PLATE_LEFT  = { 0.916992, 0.955078, 0.145508, 0.282227 }
+local PLATE_RIGHT = { 0.955078, 0.916992, 0.145508, 0.282227 } -- mirrored
+local PLATE_MID   = { 0.40, 0.60, 0.145508, 0.282227 }
+local PLATE_H, PLATE_CAP = 24, 7
+
+-- Header plate on its own child frame so SkinReputationRow's StripTextures can't wipe
+-- it. Returns the holder so callers can raise a row's label above it where needed.
+local function EnsureBlackPlate(row)
+	if not row.__euiHdrPlate then
+		local holder = CreateFrame("Frame", nil, row)
+		holder:SetAllPoints(row)
+		if holder.SetFrameLevel and row.GetFrameLevel then
+			holder:SetFrameLevel(math_max((row:GetFrameLevel() or 1) - 1, 0))
+		end
+		local left = holder:CreateTexture(nil, "ARTWORK")
+		left:SetTexture(PLATE_TEX); left:SetTexCoord(unpack(PLATE_LEFT))
+		left:SetPoint("LEFT", holder, "LEFT", 2, 0); left:SetSize(PLATE_CAP, PLATE_H)
+		local right = holder:CreateTexture(nil, "ARTWORK")
+		right:SetTexture(PLATE_TEX); right:SetTexCoord(unpack(PLATE_RIGHT))
+		right:SetPoint("RIGHT", holder, "RIGHT", -2, 0); right:SetSize(PLATE_CAP, PLATE_H)
+		local body = holder:CreateTexture(nil, "ARTWORK")
+		body:SetTexture(PLATE_TEX); body:SetTexCoord(unpack(PLATE_MID))
+		body:SetPoint("TOPLEFT", left, "TOPRIGHT", 0, 0)
+		body:SetPoint("BOTTOMRIGHT", right, "BOTTOMLEFT", 0, 0)
+		row.__euiHdrPlate = holder
+	end
+	return row.__euiHdrPlate
+end
+
+-- ElvUI-style +/- for the reputation sub-category dropdown button (rowType 3): hide the
+-- server's red dropdown texture, show a plain +/- glyph. Re-applied each SetRowType
+-- (server re-textures it), collapsed => "+", expanded => "-".
+local function StyleRepExpandButton(btn, collapsed)
+	if not btn then return end
+	if btn.SetNormalTexture then btn:SetNormalTexture("") end
+	if btn.SetPushedTexture then btn:SetPushedTexture("") end
+	if btn.SetHighlightTexture then btn:SetHighlightTexture("") end
+	local nt = btn.GetNormalTexture and btn:GetNormalTexture()
+	if nt then nt:SetTexture(nil) end
+	if not btn.__euiSign and btn.CreateFontString then
+		local fs = btn:CreateFontString(nil, "OVERLAY")
+		if fs.FontTemplate then fs:FontTemplate(nil, 16) end
+		fs:SetPoint("CENTER", btn, "CENTER", 0, 0)
+		btn.__euiSign = fs
+	end
+	if btn.__euiSign then btn.__euiSign:SetText(collapsed and "+" or "-") end
+end
+
+-- Header rows are excluded from the zebra and get the copied plate UNLESS they carry a
+-- +/- expand button (wantPlate=false, so plate and button don't collide). wantPlate
+-- defaults to isHeader.
+local function SetRowHeaderStyle(row, i, isHeader, rightPad, wantPlate)
+	if not row then return end
+	if wantPlate == nil then wantPlate = isHeader end
+	if wantPlate then
+		EnsureBlackPlate(row):Show()
+	elseif row.__euiHdrPlate then
+		row.__euiHdrPlate:Hide()
+	end
+	AddRowStripe(row, i, rightPad, isHeader)
+end
+
+-- NOZDOR: PaperDollFrame's inner panels/model frame are decorated with art re-applied
+-- after ElvUI's one-time strip. These frames are pure decorative containers (stats text,
+-- model and item slots are separate child objects), so blank ALL their own texture
+-- regions to let the flat backdrop show. FontStrings and the model are left untouched.
+local function BlankDecorTextures(frame)
+	if not frame or not frame.GetRegions then return end
+	local i = 1
+	while true do
+		local r = select(i, frame:GetRegions())
+		if not r then break end
+		if r.GetObjectType and r:GetObjectType() == "Texture" then
+			r:SetTexture(nil)
+			r:SetAlpha(0)
+		end
+		i = i + 1
+	end
+end
+
+-- Stat-category headers (ItemLevel / Stat1 / Stat2): replace the server plate behind
+-- their label with a flat ElvUI panel + hover highlight.
+local function StyleStatHeader(header)
+	if not header then return end
+	if header.Background then
+		header.Background:SetTexture(nil)
+		header.Background:Hide()
+	end
+	if header.CreateBackdrop and not header.backdrop then
+		header:CreateBackdrop("Transparent")
+		header.backdrop:Point("TOPLEFT", header, "TOPLEFT", 4, -4)
+		header.backdrop:Point("BOTTOMRIGHT", header, "BOTTOMRIGHT", -4, 4)
+		if header.HookScript and S.SetModifiedBackdrop then
+			header:HookScript("OnEnter", S.SetModifiedBackdrop)
+			header:HookScript("OnLeave", S.SetOriginalBackdrop)
+		end
+	end
+end
+
+local function CleanPaperDollDecor()
+	BlankDecorTextures(_G.PaperDollFrameNewPanel)
+	BlankDecorTextures(_G.PaperDollFrameEquipInset)
+	BlankDecorTextures(_G.PaperDollFrameInset)
+	BlankDecorTextures(_G.CharacterModelFrame)
+	StyleStatHeader(_G.ItemLevelHeader)
+	StyleStatHeader(_G.Stat1Header)
+	StyleStatHeader(_G.Stat2Header)
+end
+
+-- The corner "portrait" is a live 3D PlayerModel, not a texture, so stripping misses it.
+-- Hide it and keep it hidden against the portrait system re-showing it on UNIT_PORTRAIT_UPDATE.
+local function HideCharacterPortraitModel()
+	for _, name in ipairs({ "CharacterFramePortraitModel", "CharacterFramePortraitModelModel" }) do
+		local model = _G[name]
+		if model and model.Hide then
+			model:Hide()
+			if model.HookScript and not model.__elvHidden then
+				model.__elvHidden = true
+				model:HookScript("OnShow", model.Hide)
+			end
+		end
+	end
+end
+
+-- Pet tab: blank the shared CharacterFrameInset marble fill and the PetAttributesFrame
+-- plate to the flat ElvUI look. The rotate arrows also read too big.
+local function SkinPetFrame()
+	BlankDecorTextures(_G.CharacterFrameInset)
+
+	local attr = _G.PetAttributesFrame
+	if attr then
+		BlankDecorTextures(attr)
+		if attr.CreateBackdrop and not attr.backdrop then
+			attr:CreateBackdrop("Transparent")
+		end
+	end
+
+	for _, name in ipairs({ "PetModelFrameRotateLeftButton", "PetModelFrameRotateRightButton" }) do
+		local btn = _G[name]
+		if btn and S.HandleButton then S:HandleButton(btn) end
+		local icon = _G[name.."Icon"]
+		if icon and icon.SetSize then icon:SetSize(13, 13) end
+	end
+end
+
 local function LoadSkin()
 	if E.private.skins.blizzard.enable ~= true or E.private.skins.blizzard.character ~= true then return end
 
@@ -56,13 +250,34 @@ local function LoadSkin()
         bd:SetFrameLevel(math_max((cf:GetFrameLevel() or 1) - 2, 0))
     end
 
-	if S.HandlePortraitFrame and _G.CharacterFrame then
-		S:HandlePortraitFrame(_G.CharacterFrame)
+	-- NOZDOR: the MetalFrame2X chrome is built on CharacterFrame's first OnShow (it
+	-- doesn't exist yet here), so neutralize it on show + hide the rock background. The
+	-- chrome-building OnShow hook is registered earlier, so it always runs before this.
+	if _G.CharacterFrame then
+		_G.CharacterFrame:HookScript("OnShow", function(frame)
+			if S.HandleMetalFrame then S:HandleMetalFrame(frame, frame.backdrop) end
+			if _G.CharacterFrameBg then _G.CharacterFrameBg:SetAlpha(0) end
+			if _G.CharacterFrameTopTileStreaks then _G.CharacterFrameTopTileStreaks:SetAlpha(0) end
+			HideCharacterPortraitModel()
+		end)
 	end
 
 	if _G.CHARACTERFRAME_SUBFRAMES then
 		for i = 1, #_G.CHARACTERFRAME_SUBFRAMES do
-			SafeHandleTab(_G["CharacterFrameTab"..i])
+			local tab = _G["CharacterFrameTab"..i]
+			SafeHandleTab(tab)
+			-- The NozdorFinder tabs are much wider than stock, so ElvUI's default 10px side
+			-- insets leave big gaps — hug the button instead (backdrop tracks runtime width).
+			if tab and tab.backdrop then
+				tab.backdrop:Point("TOPLEFT", tab, "TOPLEFT", 2, 0)
+				tab.backdrop:Point("BOTTOMRIGHT", tab, "BOTTOMRIGHT", -2, 2)
+				tab:SetHitRectInsets(0, 0, 0, 0)
+			end
+		end
+		-- Anchor the tab row's TOP to the window's BOTTOM so it hangs flush below (chains off Tab1).
+		if _G.CharacterFrameTab1 and _G.CharacterFrame then
+			_G.CharacterFrameTab1:ClearAllPoints()
+			_G.CharacterFrameTab1:Point("TOPLEFT", _G.CharacterFrame, "BOTTOMLEFT", 10, 0)
 		end
 	end
 
@@ -164,6 +379,13 @@ end
 	end
 
 	if _G.PaperDollFrame then
+		-- Inner panels are re-textured after the one-time strip, so clean their decor
+		-- on every show and after each stats relayout (and once now).
+		_G.PaperDollFrame:HookScript("OnShow", CleanPaperDollDecor)
+		if _G.PaperDollFrame_UpdateStats then hooksecurefunc("PaperDollFrame_UpdateStats", CleanPaperDollDecor) end
+		if _G.CharacterModelFrame then _G.CharacterModelFrame:HookScript("OnShow", CleanPaperDollDecor) end
+		CleanPaperDollDecor()
+
 		local slots = {
 			[1] = _G.CharacterHeadSlot,[2] = _G.CharacterNeckSlot,[3] = _G.CharacterShoulderSlot,[4] = _G.CharacterShirtSlot,
 			[5] = _G.CharacterChestSlot,[6] = _G.CharacterWaistSlot,[7] = _G.CharacterLegsSlot,[8] = _G.CharacterFeetSlot,
@@ -250,9 +472,11 @@ end
 				tab:HookScript("OnLeave", S.SetOriginalBackdrop)
 			end
 		end
-		local pl, pr = _G.PetModelFrameRotateLeftButton, _G.PetModelFrameRotateRightButton
-		if pl and S.HandleRotateButton then S:HandleRotateButton(pl) end
-		if pr and S.HandleRotateButton then S:HandleRotateButton(pr) end
+		-- SkinPetFrame runs now and on every pet show (the marble is applied on the first
+		-- open, after this one-time pass). It uses HandleButton to avoid HandleRotateButton's
+		-- nil-highlight crash.
+		_G.PetPaperDollFrame:HookScript("OnShow", SkinPetFrame)
+		SkinPetFrame()
 	end
 
 --	do
@@ -518,22 +742,15 @@ local function SkinReputationRow(i)
         sb:SetHeight(14)
     end
 
-    if btn and S and S.HandleCollapseExpandButton then
-        S:HandleCollapseExpandButton(btn, "+")
-    elseif btn then
-        if btn.SetNormalTexture then btn:SetNormalTexture(nil) end
-        if btn.SetPushedTexture then btn:SetPushedTexture(nil) end
-        if btn.SetHighlightTexture then btn:SetHighlightTexture(nil) end
-    end
+    -- The server manages the +/- expand button per row type, so ElvUI must NOT re-skin it
+    -- — HandleCollapseExpandButton noops the setters and breaks the dynamic +/-. The
+    -- server also positions the faction title itself.
 
     if warCB and S and S.HandleCheckBox then
         S:HandleCheckBox(warCB)
     end
 
-    if name and btn then
-        name:ClearAllPoints()
-        name:SetPoint("LEFT", btn, "RIGHT", 4, 0)
-    end
+    -- Zebra + title plates are applied by the ReputationFrame_SetRowType hook below.
 
     row.__EUI_skinned = true
 end
@@ -569,6 +786,34 @@ local function SkinReputation()
         det:StripTextures(true)
         if det.backdrop then det.backdrop:StripTextures() end
         det:CreateBackdrop("Transparent")
+        -- Shrink the panel backdrop 1px in from the right and bottom.
+        if det.backdrop then
+            det.backdrop:ClearAllPoints()
+            det.backdrop:Point("TOPLEFT", det, "TOPLEFT", 0, 0)
+            det.backdrop:Point("BOTTOMRIGHT", det, "BOTTOMRIGHT", -1, 1)
+        end
+
+        -- The panel is redecorated when it opens, AFTER this one-time strip, so strip its
+        -- own textures again on every OnShow so first open matches the reopened state.
+        if not det.__euiDetailHooked then
+            det.__euiDetailHooked = true
+            det:HookScript("OnShow", function(frame)
+                if frame.StripTextures then frame:StripTextures(true) end
+            end)
+        end
+
+        -- Text area: drop the server's CollectionsBackgroundTile, give it a slightly
+        -- darker backdrop.
+        local tc = _G.ReputationDetailFrameTextContainer
+        if tc then
+            if tc.BackgroundTile then tc.BackgroundTile:SetTexture(nil); tc.BackgroundTile:Hide() end
+            if tc.StripTextures then tc:StripTextures(true) end
+            if tc.CreateBackdrop and not tc.backdrop then
+                tc:CreateBackdrop("Transparent")
+                if tc.backdrop.SetBackdropColor then tc.backdrop:SetBackdropColor(0, 0, 0, 0.55) end
+                if tc.backdrop.SetFrameLevel then tc.backdrop:SetFrameLevel(tc:GetFrameLevel()) end
+            end
+        end
 
         if _G.ReputationDetailCloseButton and S and S.HandleCloseButton then
             S:HandleCloseButton(_G.ReputationDetailCloseButton)
@@ -595,6 +840,35 @@ if _G.CharacterFrame_ShowSubFrame then
 end
 
 C_Timer.After(0, SkinReputation)
+
+-- Reputation rows are recycled as you scroll. ReputationFrame_SetRowType runs per row
+-- with a reliable rowType (0/1 = data, 2/3 = headers); refresh the plate + zebra right
+-- after so it follows recycled rows across scroll.
+if _G.ReputationFrame_SetRowType then
+    hooksecurefunc("ReputationFrame_SetRowType", function(factionRow, rowType)
+        if not factionRow or not factionRow.GetName then return end
+        local i = tonumber((factionRow:GetName() or ""):match("ReputationBar(%d+)$"))
+        if not i then return end
+        -- rowType 2 = top category (text sign, wants a plate); rowType 3 = sub-category
+        -- (already has a +/- dropdown button, so no plate). Both are excluded from zebra.
+        SetRowHeaderStyle(factionRow, i, (rowType == 2 or rowType == 3), 0, rowType == 2)
+        if rowType == 3 then
+            StyleRepExpandButton(_G[factionRow:GetName().."ExpandOrCollapseButton"], factionRow.isCollapsed)
+        end
+    end)
+end
+-- The per-row hook only fires during ReputationFrame_Update; force one on show so the
+-- plates appear immediately instead of only after the first scroll.
+if _G.CharacterFrame and _G.CharacterFrame.HookScript then
+    _G.CharacterFrame:HookScript("OnShow", function()
+        if _G.ReputationFrame and _G.ReputationFrame:IsShown() and _G.ReputationFrame_Update then
+            _G.ReputationFrame_Update()
+        end
+    end)
+end
+if _G.ReputationFrame and _G.ReputationFrame.HookScript and _G.ReputationFrame_Update then
+    _G.ReputationFrame:HookScript("OnShow", _G.ReputationFrame_Update)
+end
 
 local function KillTextures(frame)
     if not frame then return end
@@ -645,37 +919,15 @@ end
 C_Timer.After(0, ClearReputationBackground)
 
 local function SkinSkillRow(i)
-    local name   = _G["SkillName"..i]
-    local btn    = _G["SkillExpandButton"..i]
-    local rank   = _G["SkillRankFrame"..i]
-    local border = _G["SkillRankFrame"..i.."Border"]
+    -- A skill DATA line is the SkillRankFrame<i> status bar, already styled by the server
+    -- (SkillFrame_StyleBar). Fighting it killed its border and pushed rows into the header
+    -- above, so leave the bar alone and only add the full-row zebra. The stripe spans from
+    -- the name (-309) to just past the bar (+2); the bar is hidden on header slots, so the
+    -- zebra follows.
+    local bar = _G["SkillRankFrame"..i]
+    if not bar then return end
 
-    if not name or name.__EUI_skinned then return end
-
-    if btn then
-        if S and S.HandleCollapseExpandButton then
-            S:HandleCollapseExpandButton(btn, "+")
-        else
-            if btn.SetNormalTexture then btn:SetNormalTexture(nil) end
-            if btn.SetPushedTexture then btn:SetPushedTexture(nil) end
-            if btn.SetHighlightTexture then btn:SetHighlightTexture(nil) end
-        end
-    end
-
-    if rank then
-        if rank.StripTextures then rank:StripTextures(true) end
-        if border then border:Hide() end
-        if rank.SetStatusBarTexture and E and E.media and E.media.normTex then
-            rank:SetStatusBarTexture(E.media.normTex)
-        end
-        rank:SetHeight(12)
-        if not rank.backdrop then
-            rank:CreateBackdrop("Default", true)
-            rank.backdrop:SetFrameLevel(rank:GetFrameLevel() - 1)
-        end
-    end
-
-    name.__EUI_skinned = true
+    AddRowStripe(bar, i, 2, false, -309)
 end
 
 local function SkinSkills()
@@ -705,29 +957,63 @@ local function SkinSkills()
         S:HandleScrollBar(dSB)
     end
 
-    local detailBar = _G.SkillDetailStatusBar or _G.SkillRankFrame
-    local detailBorder = _G.SkillDetailStatusBarBorder
-    if detailBar then
-        if detailBar.StripTextures then detailBar:StripTextures(true) end
-        if detailBorder then detailBorder:Hide() end
-        if detailBar.SetStatusBarTexture and E and E.media and E.media.normTex then
-            detailBar:SetStatusBarTexture(E.media.normTex)
+    -- The skill detail status bar is coloured/valued by the server; overriding it made
+    -- it read as an empty box, so leave it to the server like the list bars.
+
+    -- The "All" button is a server-built tab. HandleCollapseExpandButton left a broken
+    -- +/- square, so hide the server atlas, give it a flat ElvUI backdrop + hover, and
+    -- drive a +/- sign from the server's own SkillFrame_StyleAllButton(btn, collapsed).
+    local allTab = _G.SkillFrameExpandButtonFrame
+    if allTab then
+        for _, k in ipairs({ "capL", "capR", "body" }) do
+            if allTab[k] and allTab[k].SetAlpha then allTab[k]:SetAlpha(0) end
         end
-        detailBar:SetHeight(12)
-        if not detailBar.backdrop then
-            detailBar:CreateBackdrop("Default", true)
-            detailBar.backdrop:SetFrameLevel(detailBar:GetFrameLevel() - 1)
+    end
+    -- Keep the server's yellow +/- texture hidden and show our own text sign;
+    -- collapsed=true (all collapsed) => "+", expanded => "-".
+    local function UpdateAllBtnSign(btn, collapsed)
+        if not btn or not btn.CreateFontString then return end
+        if btn.SetNormalTexture then btn:SetNormalTexture("") end
+        if btn.SetPushedTexture then btn:SetPushedTexture("") end
+        local nt = btn.GetNormalTexture and btn:GetNormalTexture()
+        if nt then nt:SetTexture(nil) end
+        if not btn.__euiSign then
+            local fs = btn:CreateFontString(nil, "OVERLAY")
+            if fs.FontTemplate then fs:FontTemplate(nil, 18) end
+            btn.__euiSign = fs
+        end
+        btn.__euiSign:SetText(collapsed and "+" or "-")
+        -- The server centres the "All" label off-centre, leaving label + sign lopsided;
+        -- group them centred (label just left of centre, sign right after it).
+        local label = btn.GetFontString and btn:GetFontString()
+        if label then
+            label:ClearAllPoints()
+            label:SetPoint("CENTER", btn, "CENTER", -6, 0)
+            btn.__euiSign:ClearAllPoints()
+            btn.__euiSign:SetPoint("LEFT", label, "RIGHT", 4, 0)
+        else
+            btn.__euiSign:ClearAllPoints()
+            btn.__euiSign:SetPoint("CENTER", btn, "CENTER", 0, 0)
         end
     end
 
-    if _G.SkillFrameCollapseAllButton then
-        if S and S.HandleCollapseExpandButton then
-            S:HandleCollapseExpandButton(_G.SkillFrameCollapseAllButton, "+")
-        else
-            _G.SkillFrameCollapseAllButton:SetNormalTexture(nil)
-            _G.SkillFrameCollapseAllButton:SetPushedTexture(nil)
-            _G.SkillFrameCollapseAllButton:SetHighlightTexture(nil)
+    local allBtn = _G.SkillFrameCollapseAllButton
+    if allBtn then
+        if allBtn.SetHighlightTexture then allBtn:SetHighlightTexture("") end
+        if allBtn.CreateBackdrop and not allBtn.backdrop then
+            allBtn:CreateBackdrop("Default", true)
+            if allBtn.HookScript then
+                allBtn:HookScript("OnEnter", S.SetModifiedBackdrop)
+                allBtn:HookScript("OnLeave", S.SetOriginalBackdrop)
+            end
         end
+        -- Set the sign now — StyleAllButton fires only on toggle, so without this the
+        -- +/- appeared only after the first click. isExpanded == 1 => expanded.
+        UpdateAllBtnSign(allBtn, allBtn.isExpanded ~= 1)
+    end
+    if _G.SkillFrame_StyleAllButton and not S.__euiAllBtnHooked then
+        S.__euiAllBtnHooked = true
+        hooksecurefunc("SkillFrame_StyleAllButton", UpdateAllBtnSign)
     end
     if _G.SkillFrameFilterCheckButton and S and S.HandleCheckBox then
         S:HandleCheckBox(_G.SkillFrameFilterCheckButton)
@@ -763,21 +1049,11 @@ local function FindHeaderFS(row)
 end
 
 local function StyleHeader(row)
-  KillTex(row)
+  -- The server renders currency category headers itself (catPlate + +/- catSign + label,
+  -- like the skills tab). The old code wiped that with KillTex and re-centred the label;
+  -- leave the server styling alone and just hide the leftover old category art.
   for _,r in next,{row.CategoryLeft,row.CategoryRight,row.CategoryMiddle,row.Left,row.Right,row.Middle,row.Bg,row.Background,row.Highlight} do if r and r.Hide then r:Hide() end end
-  if row.Highlight then row.Highlight:Hide() end
   if row.__hdr then row.__hdr:Hide() end
-  local fs=FindHeaderFS(row)
-  if fs then
-    fs:SetParent(row)
-    fs:ClearAllPoints()
-    fs:SetPoint("CENTER",row,"CENTER",-8,0)
-    fs:SetDrawLayer("OVERLAY",7)
-    fs:SetAlpha(1)
-    fs:Show()
-  end
-  local collapse=row.expandIcon or row.Expand or row.expandCollapseButton or row.ExpandCollapseButton
-  if collapse then collapse:Hide() end
 end
 
 local function StyleNormal(row)
@@ -788,7 +1064,15 @@ local function StyleNormal(row)
     icon:SetDesaturated(false)
     icon:SetVertexColor(1,1,1)
     icon:SetAlpha(1)
-    icon:SetTexCoord(.08,.92,.08,.92)
+    -- The server draws ring emblems (honor/arena) at 20x20 while other currency icons are
+    -- 15x15; force a uniform 15x15 and crop the emblems to fill so they match.
+    local tex = icon.GetTexture and icon:GetTexture()
+    if type(tex) == "string" and tex:lower():find("pvpcurrency", 1, true) then
+        icon:SetTexCoord(0.171875, 0.859375, 0.140625, 0.828125)
+    else
+        icon:SetTexCoord(.08, .92, .08, .92)
+    end
+    icon:SetSize(15, 15)
     icon:SetDrawLayer("ARTWORK", 1)
 
     if not icon.backdrop then
@@ -815,13 +1099,16 @@ local function FixTokenIcon(icon)
     icon.SetVertexColor = function(self, _,_,_,a) return self:_SetVertexColor(1,1,1,a) end
     icon:_SetDesaturated(false)
     icon:_SetVertexColor(1,1,1, icon:GetAlpha() or 1)
-    icon:SetTexCoord(.08,.92,.08,.92)
     icon.__patched = true
 end
 
 local function SkinTokenRow(i)
     local row = _G["TokenFrameContainerButton"..i]
     if not row then return end
+
+    -- wantPlate=false: the server already draws the header plate (catPlate); we only
+    -- need the zebra exclusion here (header rows get no stripe).
+    SetRowHeaderStyle(row, i, row.isHeader, 0, false)
 
     if row.isHeader then
         StyleHeader(row)
@@ -848,7 +1135,13 @@ end
 local function SkinTokenPopup()
   local f=_G.TokenFramePopup; if not f then return end
   f:StripTextures(true)
-  if not f.__bd then local b=MakeBD(f); b:SetAllPoints(f); f.__bd=b end
+  -- The popup carries a stock UI-DialogBox frame backdrop that StripTextures can't remove
+  -- (showed up white); clear it and give it a dark ElvUI backdrop.
+  if f.SetBackdrop then f:SetBackdrop(nil) end
+  if f.CreateBackdrop and not f.backdrop then
+    f:CreateBackdrop("Transparent")
+    if f.backdrop.SetBackdropColor then f.backdrop:SetBackdropColor(0, 0, 0, 0.55) end
+  end
   if _G.TokenFramePopupCloseButton and S and S.HandleCloseButton then S:HandleCloseButton(_G.TokenFramePopupCloseButton) end
   if S and S.HandleCheckBox then
     if _G.TokenFramePopupInactiveCheckBox then S:HandleCheckBox(_G.TokenFramePopupInactiveCheckBox) end

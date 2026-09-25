@@ -511,6 +511,10 @@ local handleCloseButtonOnLeave = function(btn) if btn.Texture then btn.Texture:S
 
 function S:HandleCloseButton(f, point)
 	if not f then return end
+
+	-- StripTextures removes the server's CloseButton2X_Apply red textures (added as new
+	-- regions via CreateTexture, so setter noops don't catch them); it also blanks our
+	-- own f.Texture, re-set below. Idempotent across mass hook / OnShow / per-window.
 	f:StripTextures()
 
 	if f:GetNormalTexture() then f:SetNormalTexture("") f.SetNormalTexture = E.noop end
@@ -524,10 +528,48 @@ function S:HandleCloseButton(f, point)
 		f:HookScript("OnEnter", handleCloseButtonOnEnter)
 		f:HookScript("OnLeave", handleCloseButtonOnLeave)
 		f:SetHitRectInsets(7, 6, 7, 6)
+	else
+		-- StripTextures blanked it; restore our X.
+		f.Texture:SetTexture(E.Media.Textures.Close)
 	end
 
 	if point then
 		f:Point("TOPRIGHT", point, "TOPRIGHT", 2, 3)
+	end
+end
+
+-- NOZDOR: the server's MetalFrame2X_Decorate/Rebuild move window chrome into a CHILD
+-- frame (frame.MetalBorder) + ring portrait + redbutton2x close button, which
+-- StripTextures (own regions only, never child frames) can't reach. HandleMetalFrame
+-- neutralizes it so the flat ElvUI backdrop shows. Idempotent.
+local metalBorderRegions = {
+	"CornerTopLeft", "CornerTopRight", "CornerBottomLeft", "CornerBottomRight",
+	"BorderTop", "BorderBottom", "BorderLeft", "BorderRight",
+}
+
+function S:HandleMetalFrame(frame, closeButtonPoint)
+	if not frame then return end
+
+	local border = frame.MetalBorder
+	if border then
+		-- Blank the metal corners/edges but KEEP TitleText (ElvUI keeps window titles).
+		for _, key in ipairs(metalBorderRegions) do
+			local region = border[key]
+			if region and region.SetTexture then
+				region:SetTexture()
+				region:SetAlpha(0)
+			end
+		end
+		if border.specRingIcon then border.specRingIcon:Hide() end
+	end
+
+	-- Hide (not SetAlpha 0): the window re-calls SetPortraitTexture on the ring portrait
+	-- (e.g. UNIT_PORTRAIT_UPDATE), which would undo an alpha; a hidden region stays hidden.
+	if frame.ringPortrait then frame.ringPortrait:Hide() end
+	if frame.specRingIcon then frame.specRingIcon:Hide() end
+
+	if frame.CloseButton then
+		S:HandleCloseButton(frame.CloseButton, closeButtonPoint)
 	end
 end
 
