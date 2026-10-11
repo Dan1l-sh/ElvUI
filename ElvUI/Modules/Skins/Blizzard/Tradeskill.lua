@@ -144,11 +144,9 @@ S:AddCallback("Skin_TradeSkill", function()
 	-- Profession card art is re-set per profession (UpdateProfessionArt); alpha survives.
 	if inset.Art then inset.Art:SetAlpha(0) end
 
-	-- Docked, the window lies over the professions overview inside the book, so
-	-- its base must be opaque. The backdrop goes on the frame itself and the
-	-- panels are its own BACKGROUND textures: child backdrop frames sat above
-	-- the rows and reagents (they are not children of these anchors) and dimmed them.
-	frame:SetTemplate("Default")
+	-- No backdrop of its own: docked it sits on the book's Transparent backdrop,
+	-- compact on the compact window's. Panels are its own BACKGROUND tints: child
+	-- backdrop frames ended up above the rows and reagents and dimmed them.
 	local function tint(...)
 		local tex = frame:CreateTexture(nil, "BACKGROUND")
 		tex:SetTexture(0, 0, 0, 0.35)
@@ -163,6 +161,28 @@ S:AddCallback("Skin_TradeSkill", function()
 		tint("TOPLEFT", list, "TOPLEFT", -4, 4, "BOTTOMRIGHT", list, "BOTTOMRIGHT", 4, -4)
 	end
 	S:HandleProfessionBar(_G.TradeSkillRankFrameProfession)
+	-- Docked, the window lies over the professions overview, which its trainer
+	-- art used to cover: hide the overview while the window is docked. The book
+	-- sets the overview's alpha on every update, so re-apply after it.
+	-- Newer FrameXML hides just the overview cards itself
+	-- (SpellBookFrame_UpdateProfessionOverview); hiding the whole overview
+	-- would also hide the profession side tabs, which are its children.
+	local overview = not _G.SpellBookFrame_UpdateProfessionOverview and _G.SpellBookProfessionFrame
+	local function updateOverview()
+		if not overview then return end
+		if frame:IsShown() and frame:GetParent() == _G.SpellBookFrame then
+			overview:SetAlpha(0)
+			overview.__euiHidden = true
+		elseif overview.__euiHidden then
+			overview.__euiHidden = nil
+			if _G.SpellBookFrame.bookType == BOOKTYPE_PROFESSION then overview:SetAlpha(1) end
+		end
+	end
+	frame:HookScript("OnShow", updateOverview)
+	frame:HookScript("OnHide", updateOverview)
+	hooksecurefunc("SpellBookFrame_Update", updateOverview)
+	hooksecurefunc("TradeSkillFrame_SetCompact", updateOverview)
+
 	-- The ornate panel border is built on the window's first OnShow.
 	frame:HookScript("OnShow", function()
 		if inset.ornate then
