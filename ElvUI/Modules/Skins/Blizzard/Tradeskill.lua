@@ -71,6 +71,14 @@ local function skinRedButton(button)
 	button:HookScript("OnShow", hideRedButtonArt)
 end
 
+-- Square icon in an ElvUI border. The backdrop is a child frame one level
+-- below its owner; an owner at level 0 would draw it over its own icon.
+local function iconBorder(owner, icon)
+	if owner:GetFrameLevel() < 1 then owner:SetFrameLevel(1) end
+	icon:SetTexCoord(unpack(E.TexCoords))
+	icon:CreateBackdrop("Default")
+end
+
 local function updateResultIcon(id)
 	local button = _G.TradeSkillSkillIcon
 	local round = button and button.Round
@@ -102,14 +110,24 @@ S:AddCallback("Skin_TradeSkill", function()
 	hide(inset.Bgs)
 	-- Profession card art is re-set per profession (UpdateProfessionArt); alpha survives.
 	if inset.Art then inset.Art:SetAlpha(0) end
-	inset:CreateBackdrop("Transparent")
-	inset.backdrop:SetAllPoints()
 
+	-- Docked, the window lies over the professions overview inside the book, so
+	-- its base must be opaque. The backdrop goes on the frame itself and the
+	-- panels are its own BACKGROUND textures: child backdrop frames sat above
+	-- the rows and reagents (they are not children of these anchors) and dimmed them.
+	frame:SetTemplate("Default")
+	local function tint(...)
+		local tex = frame:CreateTexture(nil, "BACKGROUND")
+		tex:SetTexture(0, 0, 0, 0.35)
+		for i = 1, select("#", ...), 5 do
+			local point, relativeTo, relativePoint, x, y = select(i, ...)
+			tex:SetPoint(point, relativeTo, relativePoint, x, y)
+		end
+	end
+	tint("TOPLEFT", inset, "TOPLEFT", 0, 0, "BOTTOMRIGHT", inset, "BOTTOMRIGHT", 0, 0)
 	local list = _G.TradeSkillListScrollFrame
 	if list then
-		list:CreateBackdrop("Transparent")
-		list.backdrop:Point("TOPLEFT", list, "TOPLEFT", -4, 4)
-		list.backdrop:Point("BOTTOMRIGHT", list, "BOTTOMRIGHT", 4, -4)
+		tint("TOPLEFT", list, "TOPLEFT", -4, 4, "BOTTOMRIGHT", list, "BOTTOMRIGHT", 4, -4)
 	end
 	S:HandleProfessionBar(_G.TradeSkillRankFrameProfession)
 	-- The ornate panel border is built on the window's first OnShow.
@@ -170,8 +188,7 @@ S:AddCallback("Skin_TradeSkill", function()
 	if result and result.Round then
 		hide(result.Ring)
 		hide(result.IconBorder)
-		result:CreateBackdrop("Default")
-		result.backdrop:SetOutside(result.Round)
+		iconBorder(result, result.Round)
 	end
 	hooksecurefunc("TradeSkillFrame_SetSelection", updateResultIcon)
 
@@ -180,8 +197,7 @@ S:AddCallback("Skin_TradeSkill", function()
 		local reagent = _G["TradeSkillReagent"..i]
 		if reagent and reagent.Icon then
 			hideRegionsByPath(reagent, "professionoverview2xc60")
-			reagent.Icon:SetTexCoord(unpack(E.TexCoords))
-			reagent.Icon:CreateBackdrop("Default")
+			iconBorder(reagent, reagent.Icon)
 		end
 	end
 end)
