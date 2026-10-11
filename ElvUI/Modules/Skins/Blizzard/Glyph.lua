@@ -9,14 +9,13 @@ local hooksecurefunc = hooksecurefunc
 
 -- Glyphs are a view of the NOZDOR talent window (EnterGlyphView in
 -- Blizzard_TalentUI). The window chrome, its rock base and both insets are
--- handled from Talent.lua's PlayerTalentFrame_Refresh hook. The parchment wheel,
--- sockets, list rows, headers and the minimal scrollbar are server art and kept.
+-- handled from Talent.lua's PlayerTalentFrame_Refresh hook. The parchment is
+-- hidden; sockets, list rows, headers and the minimal scrollbar are kept.
 
-local GLYPH_BG_ALPHA = 0.6
 
 local function styleParchment()
-	if _G.GlyphFrameBackground then _G.GlyphFrameBackground:SetAlpha(GLYPH_BG_ALPHA) end
-	if _G.GlyphFrameGlow then _G.GlyphFrameGlow:SetAlpha(GLYPH_BG_ALPHA) end
+	if _G.GlyphFrameBackground then _G.GlyphFrameBackground:SetAlpha(0) end
+	if _G.GlyphFrameGlow then _G.GlyphFrameGlow:SetAlpha(0) end
 end
 
 -- Search box and the availability filter are created on the first list populate.

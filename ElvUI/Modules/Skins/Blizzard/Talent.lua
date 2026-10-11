@@ -12,7 +12,7 @@ local hooksecurefunc = hooksecurefunc
 -- NOZDOR talent window: MetalFrame2X chrome, one tree page drawn by
 -- FrameXML/PlayerTalentTree.lua (unnamed atlas art), views for glyphs, runes and
 -- the pet. PlayerTalentFrame_Refresh is its single update entry point, so all
--- re-applied looks hang off it. The tree page itself is content and is kept.
+-- re-applied looks hang off it.
 -- Never noop methods of the window's own regions or write UIPanelLayout-*
 -- attributes: the window reads both, and that would taint the glyph and spec
 -- actions it runs afterwards.
@@ -65,6 +65,7 @@ local function darkenInset(inset, alpha)
 		bgs:SetVertTile(false)
 		bgs:SetTexture("Interface\\Buttons\\WHITE8X8")
 		bgs:SetVertexColor(0, 0, 0, alpha)
+		bgs:SetAlpha(1)
 	end
 end
 
@@ -222,6 +223,108 @@ local function skinSpecTab(tab)
 	updateSpecTabBorder(tab)
 end
 
+-- Tree page ----------------------------------------------------------------------
+-- PlayerTalentTree draws stones, class art, an ornate nine-slice and round
+-- atlas nodes. The page becomes one flat panel; nodes become square icons
+-- whose ElvUI border carries the node state (the rank text colour).
+
+local function hideTextures(frame, layer)
+	if not frame then return end
+	for i = 1, frame:GetNumRegions() do
+		local region = select(i, frame:GetRegions())
+		if region and region:IsObjectType("Texture") and (not layer or region:GetDrawLayer() == layer) then
+			region:SetAlpha(0)
+		end
+	end
+end
+
+local function squareIcon(icon, texture)
+	if not icon then return end
+	if texture then icon:SetTexture(texture) end
+	icon:SetTexCoord(unpack(E.TexCoords))
+	if not icon.backdrop then icon:CreateBackdrop("Default") end
+end
+
+local function skinSearchArrow(arrow)
+	if not arrow or arrow.__euiArrow then return end
+	hideTextures(arrow)
+	local tex = arrow:CreateTexture(nil, "OVERLAY")
+	tex:SetTexture(E.Media.Textures.ArrowUp)
+	tex:SetRotation(S.ArrowRotation.down)
+	tex:Size(12, 12)
+	tex:Point("CENTER")
+	arrow.__euiArrow = tex
+	arrow:CreateBackdrop("Default")
+	arrow.backdrop:SetAllPoints()
+end
+
+local function skinTreeArt(tree)
+	if tree.__euiPage then return end
+	tree.__euiPage = true
+
+	if tree.background then tree.background:SetAlpha(0) end
+	if tree.art then tree.art:SetAlpha(0) end
+	local inner = tree.innerFrame
+	if inner then
+		-- Nine-slice, divider bars and verticals are the inner frame's own textures.
+		hideTextures(inner)
+		inner:CreateBackdrop("Transparent")
+		inner.backdrop:SetAllPoints()
+	end
+	for _, header in ipairs(tree.headers or {}) do
+		hideTextures(header, "OVERLAY")
+	end
+	for _, tab in ipairs(tree.branchTabs or {}) do
+		hideTextures(tab, "BACKGROUND")
+		hideTextures(tab, "OVERLAY")
+		if tab.selected then tab.selected:SetAlpha(0) end
+		tab:CreateBackdrop("Default")
+		tab.backdrop:SetAllPoints()
+	end
+	hideTextures(tree.points)
+	if tree.preview then
+		tree.preview:SetTemplate("Transparent")
+		for _, row in ipairs(tree.preview.rows or {}) do
+			hideTextures(row, "OVERLAY")
+			if row.icon then row.icon:CreateBackdrop("Default") end
+		end
+	end
+	skinSearchArrow(tree.searchArrow)
+end
+
+local function skinTree(tree)
+	if not tree or tree.frame ~= _G.PlayerTalentFrame then return end
+	skinTreeArt(tree)
+
+	local tabs = tree.layout and tree.layout.tabs
+	for index, header in ipairs(tree.headers or {}) do
+		local tabInfo = tabs and tabs[index]
+		if tabInfo then
+			local icon = _G.PlayerTalentTree.GetBranchIcon(index, tabInfo.icon, tree.classFile)
+			squareIcon(header.icon, icon)
+			local tab = tree.branchTabs and tree.branchTabs[index]
+			if tab then
+				squareIcon(tab.icon, icon)
+				setBorderColor(tab, index == tree.branch and E.media.rgbvaluecolor)
+			end
+		end
+	end
+
+	for _, node in ipairs(tree.nodes) do
+		if node.talent and node:IsShown() then
+			node.shadow:SetAlpha(0)
+			node.border:SetAlpha(0)
+			squareIcon(node.icon, node.talent.icon)
+			local r, g, b = node.rank:GetTextColor()
+			if r == g and g == b then
+				node.icon.backdrop:SetBackdropBorderColor(unpack(E.media.bordercolor))
+			else
+				node.icon.backdrop:SetBackdropBorderColor(r, g, b)
+			end
+		end
+	end
+end
+
 -- Window -------------------------------------------------------------------------
 
 local function refresh()
@@ -235,7 +338,7 @@ local function refresh()
 
 	local glyphs = _G.GlyphFrame and _G.GlyphFrame:IsShown()
 	-- LeaveGlyphView restores the marble; EnterGlyphView re-atlases the list.
-	darkenInset(frame.contentInset, glyphs and 0 or 0.4)
+	darkenInset(frame.contentInset, 0.4)
 	if glyphs then darkenInset(frame.contentInset2, 0.6) end
 	if frame.glyphRockBase then
 		for i = 1, frame.glyphRockBase:GetNumRegions() do
@@ -249,6 +352,8 @@ local function refresh()
 		skinSpecTab(_G["PlayerSpecTab"..i])
 	end
 
+	skinTree(frame.tree)
+	skinTree(frame.petTree)
 	skinTreeControls(frame.tree)
 	skinTreeControls(frame.petTree)
 	skinSizeButton(frame.sizeButton)
@@ -281,5 +386,10 @@ S:AddCallbackForAddon("Blizzard_TalentUI", "Skin_Blizzard_TalentUI", function()
 	end
 
 	hooksecurefunc("PlayerTalentFrame_Refresh", refresh)
+	-- Tree redraws that don't go through Refresh (branch tabs, compact width).
+	local Tree = _G.PlayerTalentTree
+	for _, method in ipairs({ "Update", "UpdatePet", "SetCompact", "SelectBranch", "SetCompactWidth" }) do
+		if Tree[method] then hooksecurefunc(Tree, method, skinTree) end
+	end
 	refresh()
 end)

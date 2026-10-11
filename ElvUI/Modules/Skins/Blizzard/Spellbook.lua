@@ -131,7 +131,14 @@ local function skinSpellButton(button)
 
 	button:CreateBackdrop("Default")
 	button.backdrop:SetOutside(button)
-	button:StyleButton()
+	-- SpellButton_UpdateFrame indexes $parentHighlight by name: restyle it in
+	-- place, a new highlight texture would drop that global.
+	local highlight = _G[name.."Highlight"]
+	if highlight then
+		highlight:SetTexture(1, 1, 1, 0.3)
+		highlight:SetAllPoints(button)
+	end
+	button:StyleButton(true)
 end
 
 -- Runs after every per-button update (also for empty slots).
@@ -298,10 +305,19 @@ local function skinProfessions()
 		end
 	end
 
-	-- Cards and the animated skill bars are profession art and stay as they are.
 	for _, frameName in ipairs(PROFESSION_FRAMES) do
-		local learn = _G[frameName] and _G[frameName].Learn
+		local card = _G[frameName]
+		-- SetCard re-textures the card pieces on every update; alpha survives.
+		if card and not card.backdrop then
+			for _, key in ipairs({ "CardLeft", "CardMiddle", "CardRight", "CardTop", "CardBottom" }) do
+				if card[key] then card[key]:SetAlpha(0) end
+			end
+			card:CreateBackdrop("Transparent")
+			card.backdrop:SetAllPoints()
+		end
+		local learn = card and card.Learn
 		if learn then
+			S:HandleProfessionBar(learn.statusBar)
 			skinProfessionButton(learn.button1)
 			skinProfessionButton(learn.button2)
 			if learn.unlearn and not learn.unlearn.__euiSkinned then

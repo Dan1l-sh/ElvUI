@@ -12,8 +12,7 @@ local hooksecurefunc = hooksecurefunc
 -- NOZDOR profession window (FrameXML/Custom_TradeSkill): docked inside the
 -- spellbook (which carries the ElvUI backdrop) or shown in its own compact
 -- MetalFrame2X window. Layout belongs to the UI (TradeSkillFrame_SetCompact);
--- this only restyles. Profession card art, the animated skill bar and the
--- minimal scrollbars are kept.
+-- this only restyles. The minimal scrollbars are kept.
 
 local INSET_BORDER = {
 	"InsetBorderTopLeft", "InsetBorderTopRight", "InsetBorderBottomLeft", "InsetBorderBottomRight",
@@ -101,6 +100,18 @@ S:AddCallback("Skin_TradeSkill", function()
 	local inset = frame.DetailsInset
 	for _, key in ipairs(INSET_BORDER) do hide(inset[key]) end
 	hide(inset.Bgs)
+	-- Profession card art is re-set per profession (UpdateProfessionArt); alpha survives.
+	if inset.Art then inset.Art:SetAlpha(0) end
+	inset:CreateBackdrop("Transparent")
+	inset.backdrop:SetAllPoints()
+
+	local list = _G.TradeSkillListScrollFrame
+	if list then
+		list:CreateBackdrop("Transparent")
+		list.backdrop:Point("TOPLEFT", list, "TOPLEFT", -4, 4)
+		list.backdrop:Point("BOTTOMRIGHT", list, "BOTTOMRIGHT", 4, -4)
+	end
+	S:HandleProfessionBar(_G.TradeSkillRankFrameProfession)
 	-- The ornate panel border is built on the window's first OnShow.
 	frame:HookScript("OnShow", function()
 		if inset.ornate then
