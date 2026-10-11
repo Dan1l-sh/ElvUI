@@ -7,6 +7,7 @@ local ipairs, pairs, select, type, unpack = ipairs, pairs, select, type, unpack
 local find, lower = string.find, string.lower
 --WoW API / Variables
 local GetTradeSkillIcon = GetTradeSkillIcon
+local GetTradeSkillInfo = GetTradeSkillInfo
 local hooksecurefunc = hooksecurefunc
 
 -- NOZDOR profession window (FrameXML/Custom_TradeSkill): docked inside the
@@ -82,30 +83,31 @@ local function iconBorder(owner, icon)
 	border:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", E.mult, -E.mult)
 end
 
--- Recipe group headers get the black commonbuttons plate that the character
--- window's skill, reputation and currency headers use (Character.lua,
--- EnsureBlackPlate). The UI only creates the pieces and later tints them on
--- hover; a black plate stays black under that tint.
-local PLATE_TEX = "Interface\\Buttons\\commonbuttons"
-local PLATE_COORDS = {
-	{ 0.916992, 0.955078, 0.145508, 0.282227 },
-	{ 0.40, 0.60, 0.145508, 0.282227 },
-	{ 0.955078, 0.916992, 0.145508, 0.282227 },
-}
-local PLATE_CAP = 7
-
-local function flattenHeaders()
+-- Recipe group headers as in stock ElvUI's trade skill and trainer skins:
+-- no plate, an ElvUI +/- on the left of the text. StyleRow (the UI's own
+-- TradeSkillFrame_Update hook, which runs before this one) re-atlases and
+-- re-anchors the header icon on every update, so this re-applies each time.
+local function styleHeaders()
 	for i = 1, TRADE_SKILLS_DISPLAYED or 0 do
 		local button = _G["TradeSkillSkill"..i]
-		local pieces = button and button.HeaderPieces
-		if pieces and not button.__euiHeader then
-			button.__euiHeader = true
-			for index, piece in ipairs(pieces) do
-				piece:SetTexture(PLATE_TEX)
-				piece:SetTexCoord(unpack(PLATE_COORDS[index]))
+		if button and button:IsShown() and button.isHeader then
+			if button.HeaderPieces then
+				for _, piece in ipairs(button.HeaderPieces) do piece:SetAlpha(0) end
 			end
-			pieces[1]:SetWidth(PLATE_CAP)
-			pieces[3]:SetWidth(PLATE_CAP)
+			local expanded = select(4, GetTradeSkillInfo(button:GetID()))
+			local icon = button:GetNormalTexture()
+			if icon then
+				icon:SetTexture(expanded and E.Media.Textures.Minus or E.Media.Textures.Plus)
+				icon:SetTexCoord(0, 1, 0, 1)
+				icon:ClearAllPoints()
+				icon:Point("LEFT", button, "LEFT", 3, 0)
+				icon:Size(16, 16)
+			end
+			local text = _G[button:GetName().."Text"]
+			if text then
+				text:ClearAllPoints()
+				text:Point("LEFT", button, "LEFT", 22, 1)
+			end
 		end
 	end
 end
@@ -221,8 +223,12 @@ S:AddCallback("Skin_TradeSkill", function()
 		hide(result.IconBorder)
 		iconBorder(result, result.Round)
 	end
+	if _G.TradeSkillHighlight then
+		_G.TradeSkillHighlight:SetTexture(E.Media.Textures.Highlight)
+		_G.TradeSkillHighlight:SetAlpha(0.35)
+	end
 	hooksecurefunc("TradeSkillFrame_SetSelection", updateResultIcon)
-	hooksecurefunc("TradeSkillFrame_Update", flattenHeaders)
+	hooksecurefunc("TradeSkillFrame_Update", styleHeaders)
 
 	-- Reagents: square icons; the profession frame around each is unnamed.
 	for i = 1, MAX_TRADE_SKILL_REAGENTS or 8 do
