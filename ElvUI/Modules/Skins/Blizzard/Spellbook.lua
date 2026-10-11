@@ -239,7 +239,7 @@ local function skinRotationButton()
 end
 
 -- Rotation panel text is coloured for the book page (dark brown, dark red);
--- lift dark text so it reads on the ElvUI backdrop.
+-- lift dark text so it reads on the ElvUI backdrop (the red accent turns yellow).
 local function liftDarkText(frame)
 	for i = 1, frame:GetNumRegions() do
 		local region = select(i, frame:GetRegions())
@@ -247,7 +247,7 @@ local function liftDarkText(frame)
 			local r, g, b = region:GetTextColor()
 			if r + g + b < 1.2 then
 				if r > (g + b) then
-					region:SetTextColor(1, 0.4, 0.4)
+					region:SetTextColor(1, 0.82, 0)
 				else
 					region:SetTextColor(0.85, 0.85, 0.85)
 				end
