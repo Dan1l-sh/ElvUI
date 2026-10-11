@@ -82,19 +82,30 @@ local function iconBorder(owner, icon)
 	border:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", E.mult, -E.mult)
 end
 
--- Recipe group headers: retail plate pieces become a flat strip; the UI
--- tints them on hover with SetVertexColor, which a white texture keeps.
+-- Recipe group headers get the black commonbuttons plate that the character
+-- window's skill, reputation and currency headers use (Character.lua,
+-- EnsureBlackPlate). The UI only creates the pieces and later tints them on
+-- hover; a black plate stays black under that tint.
+local PLATE_TEX = "Interface\\Buttons\\commonbuttons"
+local PLATE_COORDS = {
+	{ 0.916992, 0.955078, 0.145508, 0.282227 },
+	{ 0.40, 0.60, 0.145508, 0.282227 },
+	{ 0.955078, 0.916992, 0.145508, 0.282227 },
+}
+local PLATE_CAP = 7
+
 local function flattenHeaders()
 	for i = 1, TRADE_SKILLS_DISPLAYED or 0 do
 		local button = _G["TradeSkillSkill"..i]
 		local pieces = button and button.HeaderPieces
 		if pieces and not button.__euiHeader then
 			button.__euiHeader = true
-			for _, piece in ipairs(pieces) do
-				piece:SetTexture("Interface\\Buttons\\WHITE8X8")
-				piece:SetTexCoord(0, 1, 0, 1)
-				piece:SetAlpha(0.12)
+			for index, piece in ipairs(pieces) do
+				piece:SetTexture(PLATE_TEX)
+				piece:SetTexCoord(unpack(PLATE_COORDS[index]))
 			end
+			pieces[1]:SetWidth(PLATE_CAP)
+			pieces[3]:SetWidth(PLATE_CAP)
 		end
 	end
 end
