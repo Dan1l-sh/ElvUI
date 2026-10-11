@@ -225,8 +225,10 @@ end
 
 -- Tree page ----------------------------------------------------------------------
 -- PlayerTalentTree draws stones, class art, an ornate nine-slice and round
--- atlas nodes. The page becomes one flat panel; nodes become square icons
--- whose ElvUI border carries the node state (the rank text colour).
+-- atlas nodes. The page becomes one flat panel under the faded class art;
+-- nodes become square icons whose ElvUI border carries the node state.
+
+local ART_ALPHA = 0.6
 
 local function hideTextures(frame, layer)
 	if not frame then return end
@@ -262,14 +264,18 @@ local function skinTreeArt(tree)
 	if tree.__euiPage then return end
 	tree.__euiPage = true
 
+	-- Class art stays, faded over the flat panel like the glyph parchment.
 	if tree.background then tree.background:SetAlpha(0) end
-	if tree.art then tree.art:SetAlpha(0) end
+	if tree.art then tree.art:SetAlpha(ART_ALPHA) end
 	local inner = tree.innerFrame
 	if inner then
 		-- Nine-slice, divider bars and verticals are the inner frame's own textures.
 		hideTextures(inner)
 		inner:CreateBackdrop("Transparent")
 		inner.backdrop:SetAllPoints()
+		if tree.art then
+			inner.backdrop:SetFrameLevel(math.max(0, tree.art:GetFrameLevel() - 1))
+		end
 	end
 	for _, header in ipairs(tree.headers or {}) do
 		hideTextures(header, "OVERLAY")
