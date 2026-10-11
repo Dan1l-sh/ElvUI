@@ -41,8 +41,10 @@ S:AddCallbackForAddon("Blizzard_TalentUI", "Skin_Blizzard_Runes", function()
 		end
 	end
 
-	if _G.PlayerTalentFrame_ShowRuneFrame then
-		hooksecurefunc("PlayerTalentFrame_ShowRuneFrame", SkinRuneChrome)
+	-- Tab clicks reach the rune view through the window's local SelectView,
+	-- not the PlayerTalentFrame_ShowRuneFrame global; Refresh is the shared path.
+	if _G.PlayerTalentFrame_Refresh then
+		hooksecurefunc("PlayerTalentFrame_Refresh", SkinRuneChrome)
 	end
 
 	-- Rune selection popup (UlduarRuneSelectionPanel). Rune list rows are server content,
