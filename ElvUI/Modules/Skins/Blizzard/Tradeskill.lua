@@ -164,7 +164,10 @@ S:AddCallback("Skin_TradeSkill", function()
 	-- Docked, the window lies over the professions overview, which its trainer
 	-- art used to cover: hide the overview while the window is docked. The book
 	-- sets the overview's alpha on every update, so re-apply after it.
-	local overview = _G.SpellBookProfessionFrame
+	-- Newer FrameXML hides just the overview cards itself
+	-- (SpellBookFrame_UpdateProfessionOverview); hiding the whole overview
+	-- would also hide the profession side tabs, which are its children.
+	local overview = not _G.SpellBookFrame_UpdateProfessionOverview and _G.SpellBookProfessionFrame
 	local function updateOverview()
 		if not overview then return end
 		if frame:IsShown() and frame:GetParent() == _G.SpellBookFrame then
