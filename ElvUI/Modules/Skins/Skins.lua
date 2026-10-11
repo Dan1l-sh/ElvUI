@@ -573,6 +573,24 @@ function S:HandleMetalFrame(frame, closeButtonPoint)
 	end
 end
 
+-- NOZDOR ProfessionStatusBarTemplate (spellbook professions, profession window):
+-- a flipbook fill on its own track; the fill is re-cropped every frame, so only
+-- alpha keeps it hidden. The bar's own texture (alpha 0 in XML) becomes the fill.
+local professionBarParts = { "Track", "Fill", "Spark", "Border" }
+
+function S:HandleProfessionBar(bar)
+	if not bar or bar.__euiSkinned then return end
+	bar.__euiSkinned = true
+
+	for _, key in ipairs(professionBarParts) do
+		if bar[key] then bar[key]:SetAlpha(0) end
+	end
+	bar:SetStatusBarTexture(E.media.normTex)
+	bar:SetStatusBarColor(0.01, 0.39, 0.1, 1)
+	bar:CreateBackdrop("Default")
+	E:RegisterStatusBar(bar)
+end
+
 local sliderOnDisable = function(self) self:GetThumbTexture():SetVertexColor(0.6, 0.6, 0.6, 0.8) end
 local sliderOnEnable = function(self) self:GetThumbTexture():SetVertexColor(1, 0.82, 0, 0.8) end
 

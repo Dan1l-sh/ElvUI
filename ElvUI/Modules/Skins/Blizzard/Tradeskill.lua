@@ -3,236 +3,239 @@ local S = E:GetModule("Skins")
 
 --Lua functions
 local _G = _G
-local unpack, select = unpack, select
+local ipairs, pairs, select, type, unpack = ipairs, pairs, select, type, unpack
+local find, lower = string.find, string.lower
 --WoW API / Variables
-local CreateFrame = CreateFrame
-local GetItemInfo = GetItemInfo
-local GetItemQualityColor = GetItemQualityColor
-local GetTradeSkillItemLink = GetTradeSkillItemLink
-local GetTradeSkillReagentInfo = GetTradeSkillReagentInfo
-local GetTradeSkillReagentItemLink = GetTradeSkillReagentItemLink
+local GetTradeSkillIcon = GetTradeSkillIcon
+local GetTradeSkillInfo = GetTradeSkillInfo
 local hooksecurefunc = hooksecurefunc
-local IsAddOnLoaded = IsAddOnLoaded
 
-local function LoadTradeSkill()
-	
-	local SKILLS_DISPLAYED = 21
-	TRADE_SKILLS_DISPLAYED = SKILLS_DISPLAYED
+-- NOZDOR profession window (FrameXML/Custom_TradeSkill): docked inside the
+-- spellbook (which carries the ElvUI backdrop) or shown in its own compact
+-- MetalFrame2X window. Layout belongs to the UI (TradeSkillFrame_SetCompact);
+-- this only restyles. The minimal scrollbars are kept.
 
-	for i = 9, SKILLS_DISPLAYED do
-		CreateFrame("Button", "TradeSkillSkill"..i, TradeSkillFrame, "TradeSkillSkillButtonTemplate"):SetPoint("TOPLEFT", _G["TradeSkillSkill"..i - 1], "BOTTOMLEFT")
+local INSET_BORDER = {
+	"InsetBorderTopLeft", "InsetBorderTopRight", "InsetBorderBottomLeft", "InsetBorderBottomRight",
+	"InsetBorderTop", "InsetBorderBottom", "InsetBorderLeft", "InsetBorderRight",
+}
+
+local MENU_BUTTON_PIECES = {
+	"TopLeft", "TopRight", "BottomLeft", "BottomRight",
+	"TopMiddle", "MiddleLeft", "MiddleRight", "BottomMiddle", "MiddleMiddle",
+}
+
+local function hide(region)
+	if region and region.SetTexture then
+		region:SetTexture(nil)
+		region:SetAlpha(0)
 	end
+end
 
-	TradeSkillFrame:StripTextures(true)
-	TradeSkillFrame:Width(713)
-
-	TradeSkillFrame:CreateBackdrop("Transparent")
-	TradeSkillFrame.backdrop:Point("TOPLEFT", 11, -12)
-	TradeSkillFrame.backdrop:Point("BOTTOMRIGHT", -32, 76)
-
-	S:SetUIPanelWindowInfo(TradeSkillFrame, "width")
-	S:SetBackdropHitRect(TradeSkillFrame)
-
-	S:HandleCloseButton(TradeSkillFrameCloseButton, TradeSkillFrame.backdrop)
-
-	TradeSkillRankFrame:StripTextures()
-	TradeSkillRankFrame:CreateBackdrop()
-	TradeSkillRankFrame:SetStatusBarTexture(E.media.normTex)
-	TradeSkillRankFrame:SetStatusBarColor(0.22, 0.39, 0.84)
-	TradeSkillRankFrame.SetStatusBarColor = E.noop
-	E:RegisterStatusBar(TradeSkillRankFrame)
-	E:SetSmoothing(TradeSkillRankFrame, 1)
-
-	S:HandleCheckBox(TradeSkillFrameAvailableFilterCheckButton)
-
-	S:HandleEditBox(TradeSkillFrameEditBox)
-
-	S:HandleDropDownBox(TradeSkillInvSlotDropDown, 140)
-	S:HandleDropDownBox(TradeSkillSubClassDropDown, 140)
-
-	TradeSkillExpandButtonFrame:StripTextures()
-
-	S:HandleCollapseExpandButton(TradeSkillCollapseAllButton, "+")
-	for i = 1, SKILLS_DISPLAYED do
-		local skillButton = _G["TradeSkillSkill"..i]
-		local skillButtonHighlight = _G["TradeSkillSkill"..i.."Highlight"]
-
-		S:HandleCollapseExpandButton(skillButton, "+", nil, nil, 1)
-
-		skillButtonHighlight:SetTexture("")
-		skillButtonHighlight.SetTexture = E.noop
-	end
-
-	TradeSkillListScrollFrame:StripTextures()
-	S:HandleScrollBar(TradeSkillListScrollFrameScrollBar)
-
-	TradeSkillDetailScrollFrame:StripTextures()
-	TradeSkillDetailScrollFrame.scrollBarHideable = nil
-	TradeSkillDetailScrollChildFrame:StripTextures()
-	S:HandleScrollBar(TradeSkillDetailScrollFrameScrollBar)
-
-	TradeSkillSkillIcon:StyleButton(nil, true)
-	TradeSkillSkillIcon:SetTemplate("Default")
-
-	TradeSkillRequirementLabel:SetTextColor(1, 0.80, 0.10)
-
-	for i = 1, MAX_TRADE_SKILL_REAGENTS do
-		local reagent = _G["TradeSkillReagent"..i]
-		local icon = _G["TradeSkillReagent"..i.."IconTexture"]
-		local count = _G["TradeSkillReagent"..i.."Count"]
-		local name = _G["TradeSkillReagent"..i.."Name"]
-		local nameFrame = _G["TradeSkillReagent"..i.."NameFrame"]
-
-		reagent:SetTemplate("Default")
-		reagent:StyleButton(nil, true)
-		reagent:Size(143, 40)
-
-		icon.backdrop = CreateFrame("Frame", nil, reagent)
-		icon.backdrop:SetTemplate()
-		icon.backdrop:Point("TOPLEFT", icon, -1, 1)
-		icon.backdrop:Point("BOTTOMRIGHT", icon, 1, -1)
-
-		icon:SetTexCoord(unpack(E.TexCoords))
-		icon:SetDrawLayer("OVERLAY")
-		icon:Size(E.PixelMode and 38 or 32)
-		icon:Point("TOPLEFT", E.PixelMode and 1 or 4, -(E.PixelMode and 1 or 4))
-		icon:SetParent(icon.backdrop)
-
-		count:SetParent(icon.backdrop)
-		count:SetDrawLayer("OVERLAY")
-
-		name:Point("LEFT", nameFrame, "LEFT", 20, 0)
-
-		nameFrame:Kill()
-	end
-
-	TradeSkillHighlight:SetTexture(E.Media.Textures.Highlight)
-	TradeSkillHighlight:SetAlpha(0.35)
-
-	S:HandleNextPrevButton(TradeSkillDecrementButton)
-	S:HandleEditBox(TradeSkillInputBox)
-	S:HandleNextPrevButton(TradeSkillIncrementButton)
-
-	S:HandleButton(TradeSkillCancelButton)
-	S:HandleButton(TradeSkillCreateButton)
-	S:HandleButton(TradeSkillCreateAllButton)
-
-	TradeSkillRankFrame:Size(522, 17)
-	TradeSkillRankFrame:Point("TOPLEFT", 85, -36)
-
-	TradeSkillRankFrameSkillRank:Point("TOP", TradeSkillFrameTitleText, 0, -23)
-
-	TradeSkillFrameAvailableFilterCheckButton:Point("TOPLEFT", 80, -59)
-
-	TradeSkillFrameEditBox:Height(18)
-	TradeSkillFrameEditBox:Point("TOPRIGHT", TradeSkillRankFrame, "BOTTOMRIGHT", -263, -9)
-
-	TradeSkillInvSlotDropDown:Point("TOPRIGHT", -32, -58)
-	TradeSkillSubClassDropDown:Point("RIGHT", TradeSkillInvSlotDropDown, "LEFT", 21, 0)
-
-	TradeSkillExpandButtonFrame:Point("TOPLEFT", 15, -68)
-
-	TradeSkillSkill1:Point("TOPLEFT", 25, -90)
-
-	TradeSkillListScrollFrame:Size(304, 340)
-	TradeSkillListScrollFrame:Point("TOPRIGHT", -390, -88)
-	TradeSkillListScrollFrame.Hide = E.noop
-	TradeSkillListScrollFrame:Show()
-
-	TradeSkillListScrollFrameScrollBar:Point("TOPLEFT", TradeSkillListScrollFrame, "TOPRIGHT", 3, -19)
-	TradeSkillListScrollFrameScrollBar:Point("BOTTOMLEFT", TradeSkillListScrollFrame, "BOTTOMRIGHT", 3, 19)
-
-	TradeSkillDetailScrollFrame:Size(305, 311)
-	TradeSkillDetailScrollFrame:Point("TOPLEFT", 347, -88)
-
-	TradeSkillDetailScrollChildFrame:Size(304, 310)
-
-	TradeSkillDetailScrollFrameScrollBar:Point("TOPLEFT", TradeSkillDetailScrollFrame, "TOPRIGHT", 3, -19)
-	TradeSkillDetailScrollFrameScrollBar:Point("BOTTOMLEFT", TradeSkillDetailScrollFrame, "BOTTOMRIGHT", 3, 19)
-
-	TradeSkillSkillIcon:Size(47)
-	TradeSkillSkillIcon:Point("TOPLEFT", 10, -9)
-
-	TradeSkillSkillName:Point("TOPLEFT", 65, -9)
-	TradeSkillDescription:Point("TOPLEFT", 8, -64)
-
-	TradeSkillReagent1:Point("TOPLEFT", TradeSkillReagentLabel, "BOTTOMLEFT", 1, -3)
-	TradeSkillReagent2:Point("LEFT", TradeSkillReagent1, "RIGHT", 3, 0)
-	TradeSkillReagent3:Point("TOPLEFT", TradeSkillReagent1, "BOTTOMLEFT", 0, -3)
-	TradeSkillReagent4:Point("LEFT", TradeSkillReagent3, "RIGHT", 3, 0)
-	TradeSkillReagent5:Point("TOPLEFT", TradeSkillReagent3, "BOTTOMLEFT", 0, -3)
-	TradeSkillReagent6:Point("LEFT", TradeSkillReagent5, "RIGHT", 3, 0)
-	TradeSkillReagent7:Point("TOPLEFT", TradeSkillReagent5, "BOTTOMLEFT", 0, -3)
-	TradeSkillReagent8:Point("LEFT", TradeSkillReagent7, "RIGHT", 3, 0)
-
-	TradeSkillInputBox:Height(16)
-
-	TradeSkillCancelButton:Point("CENTER", TradeSkillFrame, "TOPLEFT", 633, -417)
-	TradeSkillCreateButton:Point("CENTER", TradeSkillFrame, "TOPLEFT", 550, -417)
-
-	TradeSkillCreateAllButton:Width(79)
-	TradeSkillCreateAllButton:Point("RIGHT", TradeSkillCreateButton, "LEFT", -82, 0)
-	TradeSkillIncrementButton:Point("RIGHT", TradeSkillCreateButton, "LEFT", -4, 0)
-	TradeSkillDecrementButton:Point("LEFT", TradeSkillCreateAllButton, "RIGHT", 4, 0)
-
-	hooksecurefunc("TradeSkillFrame_SetSelection", function(id)
-		if TradeSkillSkillIcon:GetNormalTexture() then
-			TradeSkillSkillIcon:SetAlpha(1)
-			TradeSkillSkillIcon:GetNormalTexture():SetTexCoord(unpack(E.TexCoords))
-			TradeSkillSkillIcon:GetNormalTexture():SetInside()
-		else
-			TradeSkillSkillIcon:SetAlpha(0)
-		end
-
-		local skillLink = GetTradeSkillItemLink(id)
-		local r, g, b
-
-		if skillLink then
-			local quality = select(3, GetItemInfo(skillLink))
-
-			if quality then
-				r, g, b = GetItemQualityColor(quality)
-
-				TradeSkillSkillIcon:SetBackdropBorderColor(r, g, b)
-				TradeSkillSkillName:SetTextColor(r, g, b)
-			else
-				TradeSkillSkillIcon:SetBackdropBorderColor(unpack(E.media.bordercolor))
-				TradeSkillSkillName:SetTextColor(1, 1, 1)
+local function hideRegionsByPath(frame, pattern)
+	for i = 1, frame:GetNumRegions() do
+		local region = select(i, frame:GetRegions())
+		if region and region:IsObjectType("Texture") then
+			local path = region:GetTexture()
+			if type(path) == "string" and find(lower(path), pattern, 1, true) then
+				hide(region)
 			end
 		end
+	end
+end
 
-		for i = 1, GetTradeSkillNumReagents(id) do
-			local _, _, reagentCount, playerReagentCount = GetTradeSkillReagentInfo(id, i)
-			local reagentLink = GetTradeSkillReagentItemLink(id, i)
+local function hideEditBoxArt(box)
+	if not box then return end
+	hide(box.Left)
+	hide(box.Middle)
+	hide(box.Right)
+	S:HandleEditBox(box)
+end
 
-			if reagentLink then
-				local reagent = _G["TradeSkillReagent"..i]
-				local icon = _G["TradeSkillReagent"..i.."IconTexture"]
-				local quality = select(3, GetItemInfo(reagentLink))
+-- RedButton2X adds its own slices and tiles more middles on every resize.
+local function hideRedButtonArt(button)
+	local pieces = button.RedPieces
+	if pieces then
+		for _, piece in pairs(pieces) do piece:SetAlpha(0) end
+	end
+	if button.RedMiddle then
+		for _, tile in ipairs(button.RedMiddle) do tile:SetAlpha(0) end
+	end
+end
 
-				if quality then
-					local name = _G["TradeSkillReagent"..i.."Name"]
-					r, g, b = GetItemQualityColor(quality)
+local function skinRedButton(button)
+	if not button or button.__euiSkinned then return end
+	button.__euiSkinned = true
+	S:HandleButton(button)
+	hideRedButtonArt(button)
+	button:HookScript("OnSizeChanged", hideRedButtonArt)
+	button:HookScript("OnShow", hideRedButtonArt)
+end
 
-					icon.backdrop:SetBackdropBorderColor(r, g, b)
-					reagent:SetBackdropBorderColor(r, g, b)
+-- Square icon with a 1px ElvUI border drawn as a texture of the icon's own
+-- frame: a backdrop child frame ended up above the reagent and result icons.
+local function iconBorder(owner, icon)
+	icon:SetTexCoord(unpack(E.TexCoords))
+	if icon:GetDrawLayer() == "BACKGROUND" then icon:SetDrawLayer("BORDER") end
+	local border = owner:CreateTexture(nil, "BACKGROUND")
+	border:SetTexture(unpack(E.media.bordercolor))
+	border:SetPoint("TOPLEFT", icon, "TOPLEFT", -E.mult, E.mult)
+	border:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", E.mult, -E.mult)
+end
 
-					if playerReagentCount < reagentCount then
-						name:SetTextColor(0.5, 0.5, 0.5)
-					else
-						name:SetTextColor(r, g, b)
-					end
-				else
-					reagent:SetBackdropBorderColor(unpack(E.media.bordercolor))
-					icon.backdrop:SetBackdropBorderColor(unpack(E.media.bordercolor))
-				end
+-- Recipe group headers as in stock ElvUI's trade skill and trainer skins:
+-- no plate, an ElvUI +/- on the left of the text. StyleRow (the UI's own
+-- TradeSkillFrame_Update hook, which runs before this one) re-atlases and
+-- re-anchors the header icon on every update, so this re-applies each time.
+local function styleHeaders()
+	for i = 1, TRADE_SKILLS_DISPLAYED or 0 do
+		local button = _G["TradeSkillSkill"..i]
+		if button and button:IsShown() and button.isHeader then
+			if button.HeaderPieces then
+				for _, piece in ipairs(button.HeaderPieces) do piece:SetAlpha(0) end
 			end
+			local expanded = select(4, GetTradeSkillInfo(button:GetID()))
+			local icon = button:GetNormalTexture()
+			if icon then
+				icon:SetTexture(expanded and E.Media.Textures.Minus or E.Media.Textures.Plus)
+				icon:SetTexCoord(0, 1, 0, 1)
+				icon:ClearAllPoints()
+				icon:Point("LEFT", button, "LEFT", 3, 0)
+				icon:Size(16, 16)
+			end
+			local text = _G[button:GetName().."Text"]
+			if text then
+				text:ClearAllPoints()
+				text:Point("LEFT", button, "LEFT", 22, 1)
+			end
+		end
+	end
+end
+
+local function updateResultIcon(id)
+	local button = _G.TradeSkillSkillIcon
+	local round = button and button.Round
+	if not round then return end
+	-- The UI draws the product round (SetPortraitToTexture); show it square.
+	local texture = id and GetTradeSkillIcon(id)
+	if texture then
+		round:SetTexture(texture)
+		round:SetTexCoord(unpack(E.TexCoords))
+	end
+end
+
+S:AddCallback("Skin_TradeSkill", function()
+	if not E.private.skins.blizzard.enable or not E.private.skins.blizzard.tradeskill then return end
+
+	local frame = _G.TradeSkillFrame
+	if not frame or not frame.DetailsInset or not _G.TradeSkillFrame_SetCompact then return end
+
+	hide(frame.TrainerBg)
+	if frame.ShadowFrame then
+		for i = 1, frame.ShadowFrame:GetNumRegions() do
+			local region = select(i, frame.ShadowFrame:GetRegions())
+			if region and region.SetAlpha then region:SetAlpha(0) end
+		end
+	end
+
+	local inset = frame.DetailsInset
+	for _, key in ipairs(INSET_BORDER) do hide(inset[key]) end
+	hide(inset.Bgs)
+	-- Profession card art is re-set per profession (UpdateProfessionArt); alpha survives.
+	if inset.Art then inset.Art:SetAlpha(0) end
+
+	-- Docked, the window lies over the professions overview inside the book, so
+	-- its base must be opaque. The backdrop goes on the frame itself and the
+	-- panels are its own BACKGROUND textures: child backdrop frames sat above
+	-- the rows and reagents (they are not children of these anchors) and dimmed them.
+	frame:SetTemplate("Default")
+	local function tint(...)
+		local tex = frame:CreateTexture(nil, "BACKGROUND")
+		tex:SetTexture(0, 0, 0, 0.35)
+		for i = 1, select("#", ...), 5 do
+			local point, relativeTo, relativePoint, x, y = select(i, ...)
+			tex:SetPoint(point, relativeTo, relativePoint, x, y)
+		end
+	end
+	tint("TOPLEFT", inset, "TOPLEFT", 0, 0, "BOTTOMRIGHT", inset, "BOTTOMRIGHT", 0, 0)
+	local list = _G.TradeSkillListScrollFrame
+	if list then
+		tint("TOPLEFT", list, "TOPLEFT", -4, 4, "BOTTOMRIGHT", list, "BOTTOMRIGHT", 4, -4)
+	end
+	S:HandleProfessionBar(_G.TradeSkillRankFrameProfession)
+	-- The ornate panel border is built on the window's first OnShow.
+	frame:HookScript("OnShow", function()
+		if inset.ornate then
+			for _, piece in ipairs(inset.ornate) do hide(piece) end
 		end
 	end)
-end
 
-S:AddCallbackForAddon("Blizzard_TradeSkillUI", "Skin_Blizzard_TradeSkillUI", LoadTradeSkill)
+	-- Compact (standalone) window.
+	local compact = _G.TradeSkillCompactFrame
+	if compact and not compact.backdrop then
+		compact:CreateBackdrop("Transparent")
+		compact.backdrop:SetAllPoints()
+		S:HandleMetalFrame(compact, compact.backdrop)
+		if compact.PortraitFrame then compact.PortraitFrame:SetAlpha(0) end
+	end
+	local sizeButton = _G.TradeSkillFrameSizeButton
+	if sizeButton then
+		for _, getter in ipairs({ "GetNormalTexture", "GetPushedTexture", "GetDisabledTexture" }) do
+			local tex = sizeButton[getter](sizeButton)
+			if tex then tex:SetAlpha(0) end
+		end
+		hide(sizeButton:GetHighlightTexture())
+		local arrow = sizeButton:CreateTexture(nil, "OVERLAY")
+		arrow:SetTexture(E.Media.Textures.ArrowUp)
+		arrow:Size(12, 12)
+		arrow:Point("CENTER")
+		hooksecurefunc("TradeSkillFrame_SetCompact", function(isCompact)
+			arrow:SetRotation(S.ArrowRotation[isCompact and "right" or "left"])
+		end)
+		arrow:SetRotation(S.ArrowRotation[frame.compact and "right" or "left"])
+	end
 
-if IsAddOnLoaded("Blizzard_TradeSkillUI") then
-	LoadTradeSkill()
-end
+	-- Header controls.
+	local filter = frame.FilterButton
+	if filter then
+		for _, key in ipairs(MENU_BUTTON_PIECES) do hide(filter[key]) end
+		S:HandleButton(filter)
+	end
+	hideEditBoxArt(frame.SearchBox)
+
+	-- Bottom controls.
+	skinRedButton(_G.TradeSkillCreateButton)
+	skinRedButton(_G.TradeSkillCreateAllButton)
+	hideEditBoxArt(_G.TradeSkillInputBox)
+	S:HandleNextPrevButton(_G.TradeSkillInputBoxDecrementButton, "left", nil, true)
+	S:HandleNextPrevButton(_G.TradeSkillInputBoxIncrementButton, "right", nil, true)
+
+	local track = _G.TradeSkillTrackRecipeCheck
+	if track then
+		S:HandleCheckBox(track)
+		if track.Text then track.Text:SetTextColor(1, 1, 1) end
+	end
+
+	-- Result icon: square in an ElvUI border, no ring.
+	local result = _G.TradeSkillSkillIcon
+	if result and result.Round then
+		hide(result.Ring)
+		hide(result.IconBorder)
+		iconBorder(result, result.Round)
+	end
+	if _G.TradeSkillHighlight then
+		_G.TradeSkillHighlight:SetTexture(E.Media.Textures.Highlight)
+		_G.TradeSkillHighlight:SetAlpha(0.35)
+	end
+	hooksecurefunc("TradeSkillFrame_SetSelection", updateResultIcon)
+	hooksecurefunc("TradeSkillFrame_Update", styleHeaders)
+
+	-- Reagents: square icons; the profession frame around each is unnamed.
+	for i = 1, MAX_TRADE_SKILL_REAGENTS or 8 do
+		local reagent = _G["TradeSkillReagent"..i]
+		if reagent and reagent.Icon then
+			hideRegionsByPath(reagent, "professionoverview2xc60")
+			iconBorder(reagent, reagent.Icon)
+		end
+	end
+end)
