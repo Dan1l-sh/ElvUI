@@ -238,11 +238,34 @@ local function skinRotationButton()
 	if button.Icon then button.Icon:SetTexCoord(unpack(E.TexCoords)) end
 end
 
+-- Rotation panel text is coloured for the book page (dark brown, dark red);
+-- lift dark text so it reads on the ElvUI backdrop.
+local function liftDarkText(frame)
+	for i = 1, frame:GetNumRegions() do
+		local region = select(i, frame:GetRegions())
+		if region and region:IsObjectType("FontString") then
+			local r, g, b = region:GetTextColor()
+			if r + g + b < 1.2 then
+				if r > (g + b) then
+					region:SetTextColor(1, 0.4, 0.4)
+				else
+					region:SetTextColor(0.85, 0.85, 0.85)
+				end
+			end
+		end
+	end
+	for _, child in ipairs({ frame:GetChildren() }) do
+		liftDarkText(child)
+	end
+end
+
 -- Rotation panel is built on its first Toggle; InitPanel replaces its OnShow,
 -- so we skin from a Toggle hook instead of OnShow.
 local function skinRotationPanel()
 	local panel = _G.NozdorRotationFrame
-	if not panel or not panel.slots or panel.__euiSkinned then return end
+	if not panel or not panel.slots then return end
+	liftDarkText(panel)
+	if panel.__euiSkinned then return end
 	panel.__euiSkinned = true
 
 	panel:CreateBackdrop("Transparent")
