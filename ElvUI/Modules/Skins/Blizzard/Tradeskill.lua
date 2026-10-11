@@ -71,12 +71,32 @@ local function skinRedButton(button)
 	button:HookScript("OnShow", hideRedButtonArt)
 end
 
--- Square icon in an ElvUI border. The backdrop is a child frame one level
--- below its owner; an owner at level 0 would draw it over its own icon.
+-- Square icon with a 1px ElvUI border drawn as a texture of the icon's own
+-- frame: a backdrop child frame ended up above the reagent and result icons.
 local function iconBorder(owner, icon)
-	if owner:GetFrameLevel() < 1 then owner:SetFrameLevel(1) end
 	icon:SetTexCoord(unpack(E.TexCoords))
-	icon:CreateBackdrop("Default")
+	if icon:GetDrawLayer() == "BACKGROUND" then icon:SetDrawLayer("BORDER") end
+	local border = owner:CreateTexture(nil, "BACKGROUND")
+	border:SetTexture(unpack(E.media.bordercolor))
+	border:SetPoint("TOPLEFT", icon, "TOPLEFT", -E.mult, E.mult)
+	border:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", E.mult, -E.mult)
+end
+
+-- Recipe group headers: retail plate pieces become a flat strip; the UI
+-- tints them on hover with SetVertexColor, which a white texture keeps.
+local function flattenHeaders()
+	for i = 1, TRADE_SKILLS_DISPLAYED or 0 do
+		local button = _G["TradeSkillSkill"..i]
+		local pieces = button and button.HeaderPieces
+		if pieces and not button.__euiHeader then
+			button.__euiHeader = true
+			for _, piece in ipairs(pieces) do
+				piece:SetTexture("Interface\\Buttons\\WHITE8X8")
+				piece:SetTexCoord(0, 1, 0, 1)
+				piece:SetAlpha(0.12)
+			end
+		end
+	end
 end
 
 local function updateResultIcon(id)
@@ -191,6 +211,7 @@ S:AddCallback("Skin_TradeSkill", function()
 		iconBorder(result, result.Round)
 	end
 	hooksecurefunc("TradeSkillFrame_SetSelection", updateResultIcon)
+	hooksecurefunc("TradeSkillFrame_Update", flattenHeaders)
 
 	-- Reagents: square icons; the profession frame around each is unnamed.
 	for i = 1, MAX_TRADE_SKILL_REAGENTS or 8 do
